@@ -15,6 +15,7 @@ if (!process.env.MONGODB_URI) {
   process.exit(1);
 }
 
+
 mongoose.connect(process.env.MONGODB_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,

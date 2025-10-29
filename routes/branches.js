@@ -13,6 +13,7 @@ router.get('/', async (req, res) => {
   }
 });
 
+
 // GET single branch
 router.get('/:id', async (req, res) => {
   try {
