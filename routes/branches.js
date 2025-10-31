@@ -1,7 +1,21 @@
+// backend/routes/branches.js
 import express from 'express';
+import multer from 'multer';
+import path from 'path';
 import Branch from '../models/Branch.js';
 
 const router = express.Router();
+
+// Multer setup for image upload
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, 'uploads/');
+  },
+  filename: (req, file, cb) => {
+    cb(null, Date.now() + path.extname(file.originalname));
+  }
+});
+const upload = multer({ storage });
 
 // GET all branches
 router.get('/', async (req, res) => {
@@ -12,7 +26,6 @@ router.get('/', async (req, res) => {
     res.status(500).json({ message: 'Server error' });
   }
 });
-
 
 // GET single branch
 router.get('/:id', async (req, res) => {
@@ -25,11 +38,13 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// CREATE new branch
-router.post('/', async (req, res) => {
+// CREATE new branch (with image)
+router.post('/', upload.single('image'), async (req, res) => {
   const { name, city, address, openingHours, phone } = req.body;
+  const image = req.file ? `/uploads/${req.file.filename}` : undefined;
+
   try {
-    const branch = new Branch({ name, city, address, openingHours, phone });
+    const branch = new Branch({ name, city, address, openingHours, phone, image });
     await branch.save();
     res.status(201).json(branch);
   } catch (error) {
@@ -37,10 +52,15 @@ router.post('/', async (req, res) => {
   }
 });
 
-// UPDATE branch
-router.put('/:id', async (req, res) => {
+// UPDATE branch (with optional image)
+router.put('/:id', upload.single('image'), async (req, res) => {
   try {
-    const branch = await Branch.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    const updateData = { ...req.body };
+    if (req.file) {
+      updateData.image = `/uploads/${req.file.filename}`;
+    }
+
+    const branch = await Branch.findByIdAndUpdate(req.params.id, updateData, { new: true });
     if (!branch) return res.status(404).json({ message: 'Branch not found' });
     res.json(branch);
   } catch (error) {

@@ -6,7 +6,6 @@ import Service from './models/Service.js';
 import Barber from './models/Barber.js';
 import Appointment from './models/Appointment.js';
 
-
 dotenv.config();
 
 // Validate MongoDB URI
@@ -95,7 +94,7 @@ mongoose.connect(process.env.MONGODB_URI, {
         { name: "Shave", duration: "20 minutes", price: "£18" },
         { name: "Hair Styling", duration: "25 minutes", price: "£22" },
         { name: "Waxing", duration: "15 minutes", price: "£12" },
-      ]);
+      ]);             
       console.log(`${services.length} services seeded.`);
 
       // === 5. Seed Barbers (with valid branch reference) ===

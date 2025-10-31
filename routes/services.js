@@ -1,9 +1,10 @@
+// backend/routes/services.js
 import express from 'express';
 import Service from '../models/Service.js';
 
 const router = express.Router();
 
-// GET all services
+// GET all
 router.get('/', async (req, res) => {
   try {
     const services = await Service.find();
@@ -13,18 +14,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-// GET single service
-router.get('/:id', async (req, res) => {
-  try {
-    const service = await Service.findById(req.params.id);
-    if (!service) return res.status(404).json({ message: 'Service not found' });
-    res.json(service);
-  } catch (error) {
-    res.status(500).json({ message: 'Server error' });
-  }
-});
-
-// CREATE new service
+// CREATE
 router.post('/', async (req, res) => {
   const { name, duration, price } = req.body;
   try {
@@ -36,7 +26,7 @@ router.post('/', async (req, res) => {
   }
 });
 
-// UPDATE service
+// UPDATE
 router.put('/:id', async (req, res) => {
   try {
     const service = await Service.findByIdAndUpdate(req.params.id, req.body, { new: true });
@@ -47,7 +37,7 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-// DELETE service
+// DELETE
 router.delete('/:id', async (req, res) => {
   try {
     const service = await Service.findByIdAndDelete(req.params.id);
