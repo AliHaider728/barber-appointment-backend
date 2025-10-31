@@ -14,7 +14,6 @@ if (!process.env.MONGODB_URI) {
   process.exit(1);
 }
 
-
 mongoose.connect(process.env.MONGODB_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
@@ -36,7 +35,7 @@ mongoose.connect(process.env.MONGODB_URI, {
       // === 2. Seed Admin User ===
       const adminUser = new User({
         email: 'aliAdmin123@gmail.com',
-        password: 'ali123', // Will be hashed automatically by pre-save hook
+        password: 'ali123', // Will be hashed by pre-save hook
         role: 'admin',
       });
       await adminUser.save();
@@ -94,16 +93,16 @@ mongoose.connect(process.env.MONGODB_URI, {
         { name: "Shave", duration: "20 minutes", price: "£18" },
         { name: "Hair Styling", duration: "25 minutes", price: "£22" },
         { name: "Waxing", duration: "15 minutes", price: "£12" },
-      ]);             
+      ]);
       console.log(`${services.length} services seeded.`);
 
-      // === 5. Seed Barbers (with valid branch reference) ===
+      // === 5. Seed Barbers ===
       const barbers = await Barber.insertMany([
         {
           name: 'James Cole',
           experienceYears: 8,
           specialties: ['Fade', 'Beard Trim', 'Hair Color'],
-          branch: branches[0]._id, // Central London
+          branch: branches[0]._id,
         },
         {
           name: 'Ahmed Khan',
@@ -115,46 +114,50 @@ mongoose.connect(process.env.MONGODB_URI, {
           name: 'Sarah Miller',
           experienceYears: 6,
           specialties: ['Hair Styling', 'Waxing', 'Facial'],
-          branch: branches[1]._id, // Deansgate
+          branch: branches[1]._id,
         },
         {
           name: 'Liam Brown',
           experienceYears: 4,
           specialties: ['Buzz Cut', 'Line Up', 'Beard Trim'],
-          branch: branches[2]._id, // Birmingham
+          branch: branches[2]._id,
         },
         {
           name: 'Omar Farooq',
           experienceYears: 7,
           specialties: ['Skin Fade', 'Head Massage', 'Shave'],
-          branch: branches[4]._id, // Glasgow
+          branch: branches[4]._id,
         },
       ]);
       console.log(`${barbers.length} barbers seeded.`);
 
-      // === 6. Seed Sample Appointments ===
-      const appointments = await Appointment.insertMany([
+      // === 6. Seed Sample Appointments (WITH totalPrice & ObjectIds) ===
+      const appointmentData = [
         {
           customerName: 'John Doe',
           email: 'john@example.com',
           phone: '+44 7700 900123',
           date: new Date('2025-11-05T10:00:00'),
-          service: services[0].name,
-          barber: barbers[0].name,
-          branch: branches[0]._id,
+          service: services[0]._id,     // Men's Haircut
+          barber: barbers[0]._id,       // James Cole
+          branch: branches[0]._id,      // Central London
           status: 'confirmed',
+          totalPrice: parseFloat(services[0].price.replace('£', '')), // 25
         },
         {
           customerName: 'Emma Wilson',
           email: 'emma@example.com',
           phone: '+44 7700 900456',
           date: new Date('2025-11-06T14:30:00'),
-          service: services[3].name,
-          barber: barbers[2].name,
-          branch: branches[1]._id,
+          service: services[3]._id,     // Facial & Grooming
+          barber: barbers[2]._id,       // Sarah Miller
+          branch: branches[1]._id,      // Deansgate
           status: 'pending',
+          totalPrice: parseFloat(services[3].price.replace('£', '')), // 35
         },
-      ]);
+      ];
+
+      const appointments = await Appointment.insertMany(appointmentData);
       console.log(`${appointments.length} sample appointments seeded.`);
 
       console.log('Seeding completed successfully!');
