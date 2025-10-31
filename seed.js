@@ -1,16 +1,13 @@
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
-import User from './models/User.js';
 import Branch from './models/Branch.js';
 import Service from './models/Service.js';
 import Barber from './models/Barber.js';
-import Appointment from './models/Appointment.js';
 
 dotenv.config();
 
-// Validate MongoDB URI
 if (!process.env.MONGODB_URI) {
-  console.error('MONGODB_URI is missing in .env file!');
+  console.error('MONGODB_URI is missing!');
   process.exit(1);
 }
 
@@ -22,66 +19,26 @@ mongoose.connect(process.env.MONGODB_URI, {
     console.log('MongoDB connected for seeding...');
 
     try {
-      // === 1. Clear existing data ===
-      await Promise.all([
-        User.deleteMany({}),
-        Branch.deleteMany({}),
-        Service.deleteMany({}),
-        Barber.deleteMany({}),
-        Appointment.deleteMany({}),
-      ]);
-      console.log('Old data cleared.');
+      // SKIP IF DATA EXISTS
+      const branchCount = await Branch.countDocuments();
+      if (branchCount > 0) {
+        console.log('Data already exists. Skipping seeding.');
+        process.exit(0);
+      }
 
-      // === 2. Seed Admin User ===
-      const adminUser = new User({
-        email: 'aliAdmin123@gmail.com',
-        password: 'ali123', // Will be hashed by pre-save hook
-        role: 'admin',
-      });
-      await adminUser.save();
-      console.log('Admin user created:', adminUser.email);
+      console.log('Seeding only static data...');
 
-      // === 3. Seed Branches ===
+      // SEED BRANCHES
       const branches = await Branch.insertMany([
-        {
-          name: 'Central London',
-          city: 'London',
-          address: '18 Baker Street, Central London, W1U 3EZ',
-          openingHours: '09:00 - 19:00',
-          phone: '+44 20 7946 0958',
-        },
-        {
-          name: 'Deansgate',
-          city: 'Manchester',
-          address: '12 Deansgate, Manchester, M3 4EN',
-          openingHours: '09:30 - 18:30',
-          phone: '+44 161 834 5678',
-        },
-        {
-          name: 'City Centre',
-          city: 'Birmingham',
-          address: '44 High Street, Birmingham, B2 5PR',
-          openingHours: '10:00 - 19:00',
-          phone: '+44 121 634 8901',
-        },
-        {
-          name: 'Headingley',
-          city: 'Leeds',
-          address: '7 Otley Road, Headingley, LS6 3DG',
-          openingHours: '09:00 - 17:00',
-          phone: '+44 113 275 4321',
-        },
-        {
-          name: 'Merchant City',
-          city: 'Glasgow',
-          address: '25 Ingram Street, Merchant City, G1 1HA',
-          openingHours: '09:30 - 18:00',
-          phone: '+44 141 552 7890',
-        },
+        { name: 'Central London', city: 'London', address: '18 Baker Street, Central London, W1U 3EZ', openingHours: '09:00 - 19:00', phone: '+44 20 7946 0958' },
+        { name: 'Deansgate', city: 'Manchester', address: '12 Deansgate, Manchester, M3 4EN', openingHours: '09:30 - 18:30', phone: '+44 161 834 5678' },
+        { name: 'City Centre', city: 'Birmingham', address: '44 High Street, Birmingham, B2 5PR', openingHours: '10:00 - 19:00', phone: '+44 121 634 8901' },
+        { name: 'Headingley', city: 'Leeds', address: '7 Otley Road, Headingley, LS6 3DG', openingHours: '09:00 - 17:00', phone: '+44 113 275 4321' },
+        { name: 'Merchant City', city: 'Glasgow', address: '25 Ingram Street, Merchant City, G1 1HA', openingHours: '09:30 - 18:00', phone: '+44 141 552 7890' },
       ]);
       console.log(`${branches.length} branches seeded.`);
 
-      // === 4. Seed Services ===
+      // SEED SERVICES
       const services = await Service.insertMany([
         { name: "Men's Haircut", duration: "30 minutes", price: "£25" },
         { name: "Beard Trim", duration: "20 minutes", price: "£15" },
@@ -96,71 +53,17 @@ mongoose.connect(process.env.MONGODB_URI, {
       ]);
       console.log(`${services.length} services seeded.`);
 
-      // === 5. Seed Barbers ===
+      // SEED BARBERS
       const barbers = await Barber.insertMany([
-        {
-          name: 'James Cole',
-          experienceYears: 8,
-          specialties: ['Fade', 'Beard Trim', 'Hair Color'],
-          branch: branches[0]._id,
-        },
-        {
-          name: 'Ahmed Khan',
-          experienceYears: 5,
-          specialties: ['Classic Cut', 'Shave', 'Kids Haircut'],
-          branch: branches[0]._id,
-        },
-        {
-          name: 'Sarah Miller',
-          experienceYears: 6,
-          specialties: ['Hair Styling', 'Waxing', 'Facial'],
-          branch: branches[1]._id,
-        },
-        {
-          name: 'Liam Brown',
-          experienceYears: 4,
-          specialties: ['Buzz Cut', 'Line Up', 'Beard Trim'],
-          branch: branches[2]._id,
-        },
-        {
-          name: 'Omar Farooq',
-          experienceYears: 7,
-          specialties: ['Skin Fade', 'Head Massage', 'Shave'],
-          branch: branches[4]._id,
-        },
+        { name: 'James Cole', experienceYears: 8, specialties: ['Fade', 'Beard Trim', 'Hair Color'], branch: branches[0]._id },
+        { name: 'Ahmed Khan', experienceYears: 5, specialties: ['Classic Cut', 'Shave', 'Kids Haircut'], branch: branches[0]._id },
+        { name: 'Sarah Miller', experienceYears: 6, specialties: ['Hair Styling', 'Waxing', 'Facial'], branch: branches[1]._id },
+        { name: 'Liam Brown', experienceYears: 4, specialties: ['Buzz Cut', 'Line Up', 'Beard Trim'], branch: branches[2]._id },
+        { name: 'Omar Farooq', experienceYears: 7, specialties: ['Skin Fade', 'Head Massage', 'Shave'], branch: branches[4]._id },
       ]);
       console.log(`${barbers.length} barbers seeded.`);
 
-      // === 6. Seed Sample Appointments (WITH totalPrice & ObjectIds) ===
-      const appointmentData = [
-        {
-          customerName: 'John Doe',
-          email: 'john@example.com',
-          phone: '+44 7700 900123',
-          date: new Date('2025-11-05T10:00:00'),
-          service: services[0]._id,     // Men's Haircut
-          barber: barbers[0]._id,       // James Cole
-          branch: branches[0]._id,      // Central London
-          status: 'confirmed',
-          totalPrice: parseFloat(services[0].price.replace('£', '')), // 25
-        },
-        {
-          customerName: 'Emma Wilson',
-          email: 'emma@example.com',
-          phone: '+44 7700 900456',
-          date: new Date('2025-11-06T14:30:00'),
-          service: services[3]._id,     // Facial & Grooming
-          barber: barbers[2]._id,       // Sarah Miller
-          branch: branches[1]._id,      // Deansgate
-          status: 'pending',
-          totalPrice: parseFloat(services[3].price.replace('£', '')), // 35
-        },
-      ];
-
-      const appointments = await Appointment.insertMany(appointmentData);
-      console.log(`${appointments.length} sample appointments seeded.`);
-
-      console.log('Seeding completed successfully!');
+      console.log('Seeding completed! (No users, no appointments)');
       process.exit(0);
     } catch (error) {
       console.error('Seeding failed:', error.message);
