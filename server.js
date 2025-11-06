@@ -4,13 +4,15 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import authRoutes from './routes/auth.js';
 import appointmentRoutes from './routes/appointments.js';
-import barberRoutes from './routes/barbers.js';
+import barberRoutes from "./routes/barbers.js"
 import branchRoutes from './routes/branches.js';
 import serviceRoutes from './routes/services.js';
-
+import barberShiftRoutes from './routes/barberShifts.js';
 dotenv.config();
 
 const app = express();
+
+
 
 // CORS - Allow multiple origins (local + production)
 const allowedOrigins = [
@@ -20,7 +22,8 @@ const allowedOrigins = [
   'https://barber-appointment-six.vercel.app', // Main domain
   'https://barber-appointment-b7dlepb5e-alis-projects-58e3c939.vercel.app', // Deployment URL
   process.env.FRONTEND_URL
-].filter(Boolean);
+].filter(Boolean); 
+
 
 app.use(cors({
   origin: function(origin, callback) {
@@ -43,17 +46,19 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
-// Body parsers with higher limits for Base64 images
+// Body parsers with higher limits for Base64 images 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
 // Static uploads folder
 app.use('/uploads', express.static('uploads'));
 
+
+const connected = "Connected successfully"
 // MongoDB Connection
 mongoose.set('strictQuery', false);
 mongoose.connect(process.env.MONGODB_URI)
-  .then(() => console.log('MongoDB connected successfully'))
+  .then(() => console.log(`MongoDB  ${connected} congratulation`))
   .catch(err => console.error(' MongoDB connection error:', err));
 
 // Health check route
@@ -72,11 +77,13 @@ app.use('/api/appointments', appointmentRoutes);
 app.use('/api/barbers', barberRoutes);
 app.use('/api/branches', branchRoutes);
 app.use('/api/services', serviceRoutes);
+app.use('/api/barbershifts', barberShiftRoutes);
 
 // 404 handler
 app.use((req, res) => {
   res.status(404).json({ error: 'Route not found' });
-});
+})
+
 
 // Global error handler
 app.use((err, req, res, next) => {
