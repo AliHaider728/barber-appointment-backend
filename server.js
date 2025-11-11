@@ -75,9 +75,10 @@ app.get('/', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/appointments', appointmentRoutes);
 app.use('/api/barbers', barberRoutes);
+app.use('/api/barber-shifts', barberShiftRoutes);
 app.use('/api/branches', branchRoutes);
 app.use('/api/services', serviceRoutes);
-app.use('/api/barber-shifts', barberShiftRoutes);
+ 
 app.use('*', (req, res) => {
   res.status(404).json({ error: 'Route not found' });
 });
