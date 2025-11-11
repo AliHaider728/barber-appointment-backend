@@ -1,150 +1,128 @@
-
 // routes/branches.js
 import express from 'express';
-import multer from 'multer';
-import path from 'path';
-import mongoose from 'mongoose';
 import Branch from '../models/Branch.js';
+import { v2 as cloudinary } from 'cloudinary';  
 
 const router = express.Router();
 
-// Multer setup
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, 'uploads/');
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, uniqueSuffix + path.extname(file.originalname));
-  }
-});
-
-const upload = multer({
-  storage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
-  fileFilter: (req, file, cb) => {
-    const filetypes = /jpeg|jpg|png|webp/;
-    const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = filetypes.test(file.mimetype);
-    if (extname && mimetype) {
-      return cb(null, true);
-    } else {
-      cb(new Error('Only .png, .jpg, .jpeg, .webp allowed!'));
-    }
-  }
-});
-
-// GET all branches
+ 
+// ---------- GET ALL ----------
 router.get('/', async (req, res) => {
   try {
     const branches = await Branch.find().sort({ createdAt: -1 });
+    console.log(`GET /api/branches → ${branches.length} branches`);
     res.json(branches);
-  } catch (error) {
-    console.error('GET /branches error:', error);
-    res.status(500).json({ error: 'Failed to fetch branches' });
+  } catch (err) {
+    console.error('GET error:', err);
+    res.status(500).json({ error: err.message });
   }
 });
 
-// GET single branch
-router.get('/:id', async (req, res) => {
-  try {
-    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
-      return res.status(400).json({ error: 'Invalid branch ID' });
+// ---------- CREATE ----------
+router.post('/', async (req, res) => {
+  console.log('POST /api/branches – body:', req.body);
+
+  const { name, city, address, openingHours, phone, image } = req.body;
+  if (!name || !city || !address || !openingHours || !phone) {
+    return res.status(400).json({ error: 'All fields required' });
+  }
+
+  let imageUrl = null;
+  if (image && image.startsWith('data:')) {
+    try {
+      console.log('Uploading to Cloudinary...');
+      const result = await cloudinary.uploader.upload(image, {
+        folder: 'barber-branches',
+        width: 800,
+        crop: 'limit',
+        format: 'jpg',
+      });
+      imageUrl = result.secure_url;
+      console.log('Cloudinary upload OK →', imageUrl);
+    } catch (upErr) {
+      console.error('Cloudinary upload error:', upErr);
+      return res.status(500).json({ error: 'Image upload failed' });
     }
+  }
+
+  const branch = new Branch({
+    name: name.trim(),
+    city: city.trim(),
+    address: address.trim(),
+    openingHours: openingHours.trim(),
+    phone: phone.trim(),
+    image: imageUrl,
+  });
+
+  try {
+    await branch.save();
+    console.log('Branch saved →', branch._id);
+    res.status(201).json(branch);
+  } catch (saveErr) {
+    console.error('Mongo save error:', saveErr);
+    res.status(500).json({ error: saveErr.message });
+  }
+});
+
+// ---------- UPDATE ----------
+router.put('/:id', async (req, res) => {
+  console.log(`PUT /api/branches/${req.params.id} – body:`, req.body);
+  const { name, city, address, openingHours, phone, image } = req.body;
+
+  try {
     const branch = await Branch.findById(req.params.id);
     if (!branch) return res.status(404).json({ error: 'Branch not found' });
-    res.json(branch);
-  } catch (error) {
-    console.error('GET /branches/:id error:', error);
-    res.status(500).json({ error: 'Server error' });
-  }
-});
 
-// CREATE branch
-router.post('/', upload.single('image'), async (req, res) => {
-  try {
-    const { name, city, address, openingHours, phone } = req.body;
+    branch.name = name?.trim() ?? branch.name;
+    branch.city = city?.trim() ?? branch.city;
+    branch.address = address?.trim() ?? branch.address;
+    branch.openingHours = openingHours?.trim() ?? branch.openingHours;
+    branch.phone = phone?.trim() ?? branch.phone;
 
-    if (!name || !city || !address || !openingHours || !phone) {
-      return res.status(400).json({ error: 'All fields are required' });
+    if (image && image.startsWith('data:')) {
+      if (branch.image) {
+        const publicId = branch.image.split('/').pop().split('.')[0];
+        await cloudinary.uploader.destroy(`barber-branches/${publicId}`);
+        console.log('Deleted old image:', publicId);
+      }
+      const result = await cloudinary.uploader.upload(image, {
+        folder: 'barber-branches',
+        width: 800,
+        crop: 'limit',
+      });
+      branch.image = result.secure_url;
+      console.log('New image uploaded →', branch.image);
     }
-
-    const image = req.file ? `/uploads/${req.file.filename}` : null;
-
-    const branch = new Branch({
-      name: name.trim(),
-      city: city.trim(),
-      address: address.trim(),
-      openingHours: openingHours.trim(),
-      phone: phone.trim(),
-      image
-    });
 
     await branch.save();
-    res.status(201).json(branch);
-  } catch (error) {
-    console.error('POST /branches error:', error);
-    res.status(500).json({ error: 'Failed to create branch', details: error.message });
-  }
-});
-
-// UPDATE branch
-router.put('/:id', upload.single('image'), async (req, res) => {
-  try {
-    const { id } = req.params;
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ error: 'Invalid branch ID' });
-    }
-
-    const { name, city, address, openingHours, phone } = req.body;
-    if (!name || !city || !address || !openingHours || !phone) {
-      return res.status(400).json({ error: 'All fields are required' });
-    }
-
-    const updateData = {
-      name: name.trim(),
-      city: city.trim(),
-      address: address.trim(),
-      openingHours: openingHours.trim(),
-      phone: phone.trim()
-    };
-
-    // Only update image if new file uploaded
-    if (req.file) {
-      updateData.image = `/uploads/${req.file.filename}`;
-    }
-
-    const branch = await Branch.findByIdAndUpdate(id, updateData, {
-      new: true,
-      runValidators: true
-    });
-
-    if (!branch) return res.status(404).json({ error: 'Branch not found' });
+    console.log('Branch updated →', branch._id);
     res.json(branch);
-  } catch (error) {
-    console.error('PUT /branches/:id error:', error);
-    res.status(500).json({ error: 'Failed to update branch', details: error.message });
+  } catch (err) {
+    console.error('PUT error:', err);
+    res.status(500).json({ error: err.message });
   }
 });
 
-// DELETE branch
+// ---------- DELETE ----------
 router.delete('/:id', async (req, res) => {
+  console.log(`DELETE /api/branches/${req.params.id}`);
   try {
-    const { id } = req.params;
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ error: 'Invalid branch ID' });
+    const branch = await Branch.findById(req.params.id);
+    if (!branch) return res.status(404).json({ error: 'Not found' });
+
+    if (branch.image) {
+      const publicId = branch.image.split('/').pop().split('.')[0];
+      await cloudinary.uploader.destroy(`barber-branches/${publicId}`);
+      console.log('Deleted Cloudinary image:', publicId);
     }
 
-    const branch = await Branch.findByIdAndDelete(id);
-    if (!branch) return res.status(404).json({ error: 'Branch not found' });
-
-    res.json({ message: 'Branch deleted successfully' });
-  } catch (error) {
-    console.error('DELETE /branches/:id error:', error);
-    res.status(500).json({ error: 'Failed to delete branch' });
+    await branch.deleteOne();
+    console.log('Branch deleted');
+    res.json({ message: 'Deleted' });
+  } catch (err) {
+    console.error('DELETE error:', err);
+    res.status(500).json({ error: err.message });
   }
 });
 
 export default router;
-
- 

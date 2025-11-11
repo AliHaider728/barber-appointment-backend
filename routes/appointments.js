@@ -1,47 +1,62 @@
-// routes/appointments.js
 import express from 'express';
 import Appointment from '../models/Appointment.js';
 import Service from '../models/Service.js';
+import Barber from '../models/Barber.js';
+import mongoose from 'mongoose';
 
 const router = express.Router();
 
-// POST - Create appointment with totalPrice
+// CREATE APPOINTMENT
 router.post('/', async (req, res) => {
   try {
-    const { customerName, email, phone, date, selectedServices, barber, branch } = req.body;
+    const { customerName, email, phone, date, selectedServices, barber, branch, duration } = req.body;
+
+    if (!customerName || !email || !phone || !date || !barber || !branch || !duration) {
+      return res.status(400).json({ message: 'All fields are required' });
+    }
 
     if (!selectedServices || selectedServices.length === 0) {
       return res.status(400).json({ message: 'At least one service required' });
+    }
+
+    // Validate IDs
+    if (!mongoose.Types.ObjectId.isValid(barber) || !mongoose.Types.ObjectId.isValid(branch)) {
+      return res.status(400).json({ message: 'Invalid barber or branch ID' });
     }
 
     // Fetch service details
     const serviceIds = selectedServices.map(s => s.serviceRef);
     const services = await Service.find({ _id: { $in: serviceIds } });
 
-    // Build services array with price
-    const enrichedServices = selectedServices.map(selected => {
-      const service = services.find(s => s._id.toString() === selected.serviceRef);
-      if (!service) throw new Error(`Service not found: ${selected.serviceRef}`);
+    if (services.length !== serviceIds.length) {
+      return res.status(400).json({ message: 'One or more services not found' });
+    }
+
+    // Build enriched services
+    const enrichedServices = selectedServices.map(sel => {
+      const service = services.find(s => s._id.toString() === sel.serviceRef);
       return {
         serviceRef: service._id,
         name: service.name,
-        price: service.price
+        price: service.price,
+        duration: service.duration
       };
     });
 
-    // Calculate total
+    // Calculate total price
     const totalPrice = enrichedServices.reduce((sum, s) => {
       return sum + parseFloat(s.price.replace('£', ''));
     }, 0);
 
-    // Save appointment
+    // Create appointment
     const appointment = new Appointment({
-      customerName,
-      email,
-      phone,
+      customerName: customerName.trim(),
+      email: email.trim(),
+      phone: phone.trim(),
       date: new Date(date),
       services: enrichedServices,
       totalPrice,
+      duration,
       barber,
       branch,
       status: 'pending'
@@ -49,37 +64,61 @@ router.post('/', async (req, res) => {
 
     await appointment.save();
 
-    // Populate for response
+    // Populate response
     const populated = await Appointment.findById(appointment._id)
+      .populate('barber', 'name')
       .populate('branch', 'name city')
-      .populate('services.serviceRef', 'name price');
+      .populate('services.serviceRef', 'name price duration');
 
     res.status(201).json(populated);
   } catch (error) {
-    console.error('POST appointment error:', error);
+    console.error('Create appointment error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
 
-// GET all with totalPrice
+// ✅ GET ALL APPOINTMENTS (YE ROUTE MISSING THA!)
 router.get('/', async (req, res) => {
   try {
     const appointments = await Appointment.find()
-      .populate('branch', 'name city')
-      .populate('services.serviceRef', 'name price')
-      .sort({ date: -1 });
+      .populate('barber', 'name')
+      .populate('branch', 'name city address')
+      .populate('services.serviceRef', 'name price duration')
+      .sort({ date: -1 }); // Latest appointments first
 
     res.json(appointments);
   } catch (error) {
+    console.error('GET all appointments error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// GET BY BARBER & DATE (for time slots)
+router.get('/barber/:barberId/date/:date', async (req, res) => {
+  try {
+    const { barberId, date } = req.params;
+    
+    const start = new Date(date);
+    const end = new Date(date);
+    end.setDate(end.getDate() + 1);
+
+    const bookings = await Appointment.find({
+      barber: barberId,
+      date: { $gte: start, $lt: end }
+    }).select('date duration status');
+
+    res.json(Array.isArray(bookings) ? bookings : []);
+  } catch (error) {
+    console.error('GET bookings error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-// PUT - Update status
+// UPDATE STATUS
 router.put('/:id', async (req, res) => {
   try {
     const { status } = req.body;
-    if (!['pending', 'confirmed', 'rejected'].includes(status)) {
+    if (!['pending', 'confirmed', 'rejected', 'completed'].includes(status)) {
       return res.status(400).json({ message: 'Invalid status' });
     }
 
@@ -88,8 +127,11 @@ router.put('/:id', async (req, res) => {
       { status },
       { new: true }
     )
+      .populate('barber', 'name')
       .populate('branch', 'name city')
       .populate('services.serviceRef', 'name price');
+
+    if (!appointment) return res.status(404).json({ message: 'Appointment not found' });
 
     res.json(appointment);
   } catch (error) {
@@ -97,140 +139,15 @@ router.put('/:id', async (req, res) => {
   }
 });
 
+// DELETE
+router.delete('/:id', async (req, res) => {
+  try {
+    const appointment = await Appointment.findByIdAndDelete(req.params.id);
+    if (!appointment) return res.status(404).json({ message: 'Not found' });
+    res.json({ message: 'Deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 export default router;
-
-// // routes/appointments.js
-// import express from 'express';
-// import Appointment from '../models/Appointment.js';
-// import Service from '../models/Service.js';
-// import sendEmail from '../utils/sendEmail.js';
-// import { bookingRequestEmail, statusUpdateEmail } from '../utils/emailTemplates.js';
-
-// const router = express.Router();
-// // POST route ke start mein
-// console.log('POST /appointments - Booking request received');
-// // POST - Create appointment
-// router.post('/', async (req, res) => {
-//   try {
-//     const { customerName, email, phone, date, selectedServices, barber, branch } = req.body;
-
-//     if (!selectedServices || selectedServices.length === 0) {
-//       return res.status(400).json({ message: 'At least one service required' });
-//     }
-
-//     const serviceIds = selectedServices.map(s => s.serviceRef);
-//     const services = await Service.find({ _id: { $in: serviceIds } });
-
-//     const enrichedServices = selectedServices.map(selected => {
-//       const service = services.find(s => s._id.toString() === selected.serviceRef);
-//       if (!service) throw new Error(`Service not found: ${selected.serviceRef}`);
-//       return {
-//         serviceRef: service._id,
-//         name: service.name,
-//         price: service.price
-//       };
-//     });
-
-//     const totalPrice = enrichedServices.reduce((sum, s) => {
-//       return sum + parseFloat(s.price.replace('£', ''));
-//     }, 0);
-
-//     const appointment = new Appointment({
-//       customerName,
-//       email,
-//       phone,
-//       date: new Date(date),
-//       services: enrichedServices,
-//       totalPrice,
-//       barber,
-//       branch,
-//       status: 'pending'
-//     });
-
-//     await appointment.save();
-
-//     const populated = await Appointment.findById(appointment._id)
-//       .populate('branch', 'name city')
-//       .populate('services.serviceRef', 'name price');
-
-//     // Extract data for email
-//     const serviceNames = enrichedServices.map(s => s.name).join(', ');
-//     const [appointmentDate, appointmentTime] = new Date(date).toISOString().split('T');
-//     const time = appointmentTime.slice(0, 5);
-
-//     // Send Booking Request Email
-//     try {
-//       await sendEmail(
-//         email,
-//         'Your Barber Appointment Request',
-//         bookingRequestEmail(
-//           customerName,
-//           appointmentDate,
-//           time,
-//           serviceNames,
-//           populated.branch.name,
-//           totalPrice.toFixed(2)
-//         )
-//       );
-//     } catch (emailError) {
-//       console.error('Failed to send booking email:', emailError);
-//       // Don't fail the booking if email fails
-//     }
-
-//     res.status(201).json(populated);
-//   } catch (error) {
-//     console.error('POST appointment error:', error);
-//     res.status(500).json({ message: 'Server error', error: error.message });
-//   }
-// });
-
-// // PUT - Update status (Approve/Reject)
-// router.put('/:id', async (req, res) => {
-//   try {
-//     const { status } = req.body;
-//     if (!['pending', 'confirmed', 'rejected'].includes(status)) {
-//       return res.status(400).json({ message: 'Invalid status' });
-//     }
-
-//     const appointment = await Appointment.findByIdAndUpdate(
-//       req.params.id,
-//       { status },
-//       { new: true }
-//     )
-//       .populate('branch', 'name city')
-//       .populate('services.serviceRef', 'name price');
-
-//     if (!appointment) {
-//       return res.status(404).json({ message: 'Appointment not found' });
-//     }
-
-//     // Send status update email
-//     const serviceNames = appointment.services.map(s => s.name).join(', ');
-//     const [date, timeWithSec] = new Date(appointment.date).toISOString().split('T');
-//     const time = timeWithSec.slice(0, 5);
-
-//     try {
-//       await sendEmail(
-//         appointment.email,
-//         `Appointment ${status === 'confirmed' ? 'Approved' : 'Rejected'}`,
-//         statusUpdateEmail(
-//           appointment.customerName,
-//           status,
-//           date,
-//           time,
-//           serviceNames,
-//           appointment.branch.name,
-//           appointment.totalPrice.toFixed(2)
-//         )
-//       );
-//     } catch (emailError) {
-//       console.error('Failed to send status email:', emailError);
-//     }
-
-//     res.json(appointment);
-//   } catch (error) {
-//     res.status(500).json({ message: 'Server error' });
-//   }
-// });
-
-// export default router;
