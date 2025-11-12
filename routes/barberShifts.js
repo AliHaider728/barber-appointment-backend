@@ -5,7 +5,7 @@ import mongoose from 'mongoose';
 
 const router = express.Router();
 
-// GET all shifts for a barber (for admin panel)
+// GET shifts by barber
 router.get('/', async (req, res) => {
   try {
     const { barber } = req.query;
@@ -23,46 +23,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-// GET shift for a barber on a specific DATE (NEW - FOR BOOKING)
-router.get('/barber/:barberId/date/:date', async (req, res) => {
-  try {
-    const { barberId, date } = req.params;
-
-    if (!mongoose.Types.ObjectId.isValid(barberId)) {
-      return res.status(400).json({ message: 'Invalid barber ID' });
-    }
-
-    const targetDate = new Date(date);
-    if (isNaN(targetDate)) {
-      return res.status(400).json({ message: 'Invalid date' });
-    }
-
-    const dayOfWeek = targetDate.getDay(); // 0 = Sunday
-
-    const shift = await BarberShift.findOne({
-      barber: barberId,
-      dayOfWeek
-    });
-
-    if (!shift) {
-      return res.json({ isOff: true, message: 'Day Off' });
-    }
-
-    // Return only needed fields
-    res.json({
-      _id: shift._id,
-      startTime: shift.startTime,
-      endTime: shift.endTime,
-      isOff: shift.isOff
-    });
-
-  } catch (error) {
-    console.error('GET shift by date error:', error);
-    res.status(500).json({ message: 'Server error' });
-  }
-});
-
-// CREATE / UPDATE shift (Admin)
+// CREATE shift
 router.post('/', async (req, res) => {
   try {
     const { barber, dayOfWeek, startTime, endTime, isOff } = req.body;
@@ -72,11 +33,7 @@ router.post('/', async (req, res) => {
     }
 
     if (dayOfWeek < 0 || dayOfWeek > 6) {
-      return res.status(400).json({ message: 'Invalid dayOfWeek (0-6)' });
-    }
-
-    if (!isOff && (!startTime || !endTime)) {
-      return res.status(400).json({ message: 'Start and end time required' });
+      return res.status(400).json({ message: 'Invalid dayOfWeek' });
     }
 
     // Delete existing shift for same barber + day
@@ -84,20 +41,16 @@ router.post('/', async (req, res) => {
 
     const shift = new BarberShift({
       barber,
-      dayOfWeek: Number(dayOfWeek),
+      dayOfWeek,
       startTime: isOff ? null : startTime,
       endTime: isOff ? null : endTime,
-      isOff: Boolean(isOff)
+      isOff
     });
 
     await shift.save();
     res.status(201).json(shift);
-
   } catch (error) {
     console.error('POST shift error:', error);
-    if (error.code === 11000) {
-      return res.status(400).json({ message: 'Shift already exists' });
-    }
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -115,9 +68,8 @@ router.delete('/:id', async (req, res) => {
       return res.status(404).json({ message: 'Shift not found' });
     }
 
-    res.json({ success: true, message: 'Shift deleted successfully' });
+    res.json({ message: 'Shift deleted' });
   } catch (error) {
-    console.error('DELETE shift error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
