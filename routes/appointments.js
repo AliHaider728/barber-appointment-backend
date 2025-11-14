@@ -1,7 +1,6 @@
 import express from 'express';
 import Appointment from '../models/Appointment.js';
 import Service from '../models/Service.js';
-import Barber from '../models/Barber.js';
 import mongoose from 'mongoose';
 
 const router = express.Router();
@@ -11,28 +10,32 @@ router.post('/', async (req, res) => {
   try {
     const { customerName, email, phone, date, selectedServices, barber, branch, duration } = req.body;
 
+    // Validate required fields
     if (!customerName || !email || !phone || !date || !barber || !branch || !duration) {
       return res.status(400).json({ message: 'All fields are required' });
     }
 
-    if (!selectedServices || selectedServices.length === 0) {
-      return res.status(400).json({ message: 'At least one service required' });
+    if (!selectedServices || !Array.isArray(selectedServices) || selectedServices.length === 0) {
+      return res.status(400).json({ message: 'At least one service is required' });
     }
 
-    // Validate IDs
+    // Validate ObjectIds
     if (!mongoose.Types.ObjectId.isValid(barber) || !mongoose.Types.ObjectId.isValid(branch)) {
       return res.status(400).json({ message: 'Invalid barber or branch ID' });
     }
 
-    // Fetch service details
-    const serviceIds = selectedServices.map(s => s.serviceRef);
-    const services = await Service.find({ _id: { $in: serviceIds } });
+    // Validate service IDs
+    const serviceIds = selectedServices.map(s => s.serviceRef).filter(Boolean);
+    if (serviceIds.some(id => !mongoose.Types.ObjectId.isValid(id))) {
+      return res.status(400).json({ message: 'Invalid service ID' });
+    }
 
+    const services = await Service.find({ _id: { $in: serviceIds } });
     if (services.length !== serviceIds.length) {
       return res.status(400).json({ message: 'One or more services not found' });
     }
 
-    // Build enriched services
+    // Enrich services with full data
     const enrichedServices = selectedServices.map(sel => {
       const service = services.find(s => s._id.toString() === sel.serviceRef);
       return {
@@ -45,13 +48,13 @@ router.post('/', async (req, res) => {
 
     // Calculate total price
     const totalPrice = enrichedServices.reduce((sum, s) => {
-      return sum + parseFloat(s.price.replace('£', ''));
+      return sum + parseFloat(s.price.replace('£', '').trim());
     }, 0);
 
     // Create appointment
     const appointment = new Appointment({
       customerName: customerName.trim(),
-      email: email.trim(),
+      email: email.trim().toLowerCase(),
       phone: phone.trim(),
       date: new Date(date),
       services: enrichedServices,
@@ -64,10 +67,10 @@ router.post('/', async (req, res) => {
 
     await appointment.save();
 
-    // Populate response
+    // Return populated appointment
     const populated = await Appointment.findById(appointment._id)
       .populate('barber', 'name')
-      .populate('branch', 'name city')
+      .populate('branch', 'name city address')
       .populate('services.serviceRef', 'name price duration');
 
     res.status(201).json(populated);
@@ -77,14 +80,14 @@ router.post('/', async (req, res) => {
   }
 });
 
-// ✅ GET ALL APPOINTMENTS (YE ROUTE MISSING THA!)
+// GET ALL APPOINTMENTS – POPULATED
 router.get('/', async (req, res) => {
   try {
     const appointments = await Appointment.find()
       .populate('barber', 'name')
       .populate('branch', 'name city address')
       .populate('services.serviceRef', 'name price duration')
-      .sort({ date: -1 }); // Latest appointments first
+      .sort({ date: -1 });
 
     res.json(appointments);
   } catch (error) {
@@ -93,11 +96,15 @@ router.get('/', async (req, res) => {
   }
 });
 
-// GET BY BARBER & DATE (for time slots)
+// GET APPOINTMENTS BY BARBER & DATE (for time slots)
 router.get('/barber/:barberId/date/:date', async (req, res) => {
   try {
     const { barberId, date } = req.params;
-    
+
+    if (!mongoose.Types.ObjectId.isValid(barberId)) {
+      return res.status(400).json({ message: 'Invalid barber ID' });
+    }
+
     const start = new Date(date);
     const end = new Date(date);
     end.setDate(end.getDate() + 1);
@@ -107,17 +114,18 @@ router.get('/barber/:barberId/date/:date', async (req, res) => {
       date: { $gte: start, $lt: end }
     }).select('date duration status');
 
-    res.json(Array.isArray(bookings) ? bookings : []);
+    res.json(bookings);
   } catch (error) {
-    console.error('GET bookings error:', error);
+    console.error('GET bookings by barber/date error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-// UPDATE STATUS
+// UPDATE STATUS (Approve / Reject)
 router.put('/:id', async (req, res) => {
   try {
     const { status } = req.body;
+
     if (!['pending', 'confirmed', 'rejected', 'completed'].includes(status)) {
       return res.status(400).json({ message: 'Invalid status' });
     }
@@ -129,23 +137,31 @@ router.put('/:id', async (req, res) => {
     )
       .populate('barber', 'name')
       .populate('branch', 'name city')
-      .populate('services.serviceRef', 'name price');
+      .populate('services.serviceRef', 'name price duration');
 
-    if (!appointment) return res.status(404).json({ message: 'Appointment not found' });
+    if (!appointment) {
+      return res.status(404).json({ message: 'Appointment not found' });
+    }
 
     res.json(appointment);
   } catch (error) {
+    console.error('Update appointment error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-// DELETE
+// DELETE APPOINTMENT
 router.delete('/:id', async (req, res) => {
   try {
     const appointment = await Appointment.findByIdAndDelete(req.params.id);
-    if (!appointment) return res.status(404).json({ message: 'Not found' });
-    res.json({ message: 'Deleted successfully' });
+
+    if (!appointment) {
+      return res.status(404).json({ message: 'Appointment not found' });
+    }
+
+    res.json({ message: 'Appointment deleted successfully' });
   } catch (error) {
+    console.error('Delete appointment error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
