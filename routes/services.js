@@ -8,10 +8,10 @@ const router = express.Router();
 router.get('/', async (req, res) => {
   try {
     const services = await Service.find().sort({ gender: 1, name: 1 });
-    console.log(`✅ GET /api/services → ${services.length} services found`);
+    console.log(` GET /api/services → ${services.length} services found`);
     res.json(services);
   } catch (error) {
-    console.error('❌ GET services error:', error);
+    console.error(' GET services error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
@@ -26,10 +26,10 @@ router.get('/gender/:gender', async (req, res) => {
     }
     
     const services = await Service.find({ gender: gender.toLowerCase() });
-    console.log(`✅ GET /api/services/gender/${gender} → ${services.length} services found`);
+    console.log(` GET /api/services/gender/${gender} → ${services.length} services found`);
     res.json(services);
   } catch (error) {
-    console.error('❌ GET services by gender error:', error);
+    console.error(' GET services by gender error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
@@ -72,10 +72,10 @@ router.post('/', async (req, res) => {
     });
 
     await service.save();
-    console.log('✅ Service created:', service._id, '-', service.name);
+    console.log(' Service created:', service._id, '-', service.name);
     res.status(201).json(service);
   } catch (error) {
-    console.error('❌ CREATE service error:', error);
+    console.error(' CREATE service error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
@@ -115,10 +115,10 @@ router.put('/:id', async (req, res) => {
       return res.status(404).json({ message: 'Service not found' });
     }
 
-    console.log('✅ Service updated:', service._id);
+    console.log(' Service updated:', service._id);
     res.json(service);
   } catch (error) {
-    console.error('❌ UPDATE service error:', error);
+    console.error(' UPDATE service error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
@@ -132,10 +132,10 @@ router.delete('/:id', async (req, res) => {
       return res.status(404).json({ message: 'Service not found' });
     }
 
-    console.log('✅ Service deleted:', service._id, '-', service.name);
+    console.log(' Service deleted:', service._id, '-', service.name);
     res.json({ message: 'Service deleted successfully' });
   } catch (error) {
-    console.error('❌ DELETE service error:', error);
+    console.error(' DELETE service error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
