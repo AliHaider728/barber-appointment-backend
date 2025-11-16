@@ -9,6 +9,7 @@ import branchRoutes from './routes/branches.js';
 import serviceRoutes from './routes/services.js';
 import barberShiftRoutes from './routes/barberShifts.js';
 import { v2 as cloudinary } from 'cloudinary';
+import StripeRoute from './routes/stripe.js'
 
 dotenv.config();
 cloudinary.config({
@@ -78,6 +79,7 @@ app.use('/api/barbers', barberRoutes);
 app.use('/api/barber-shifts', barberShiftRoutes);
 app.use('/api/branches', branchRoutes);
 app.use('/api/services', serviceRoutes);
+app.use("/api/stripe", StripeRoute)
  
 app.use('*', (req, res) => {
   res.status(404).json({ error: 'Route not found' });
