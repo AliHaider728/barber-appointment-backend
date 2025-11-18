@@ -1,3 +1,4 @@
+// models/Appointment.js - UPDATED WITH PAYMENT FIELDS
 import mongoose from 'mongoose';
 
 const appointmentSchema = new mongoose.Schema({
@@ -16,13 +17,25 @@ const appointmentSchema = new mongoose.Schema({
   duration: { type: Number, required: true },
   barber: { type: mongoose.Schema.Types.ObjectId, ref: 'Barber', required: true },
   branch: { type: mongoose.Schema.Types.ObjectId, ref: 'Branch', required: true },
-  status: { type: String, enum: ['pending', 'confirmed', 'rejected', 'completed'], default: 'pending' },
-  paymentIntentId: { type: String },
-  paymentStatus: { type: String, enum: ['pending', 'authorized', 'captured', 'cod', 'failed'], default: 'cod' },
-  isPaidOnline: { type: Boolean, default: false }
+  status: { 
+    type: String, 
+    enum: ['pending', 'confirmed', 'rejected', 'completed'], 
+    default: 'pending' 
+  },
+  
+  // PAYMENT FIELDS - YE NAYI FIELDS HAIN
+  paymentIntentId: { type: String }, // Stripe payment intent ID
+  paymentStatus: { 
+    type: String, 
+    enum: ['pending', 'paid', 'failed', 'refunded'], 
+    default: 'pending' 
+  },
+  payOnline: { type: Boolean, default: false }, // true = online payment, false = pay at salon
+   
 }, { timestamps: true });
 
 appointmentSchema.index({ barber: 1, date: 1 });
 appointmentSchema.index({ branch: 1, date: 1 });
+appointmentSchema.index({ paymentIntentId: 1 });
 
 export default mongoose.model('Appointment', appointmentSchema);

@@ -21,6 +21,7 @@ mongoose.connect(process.env.MONGODB_URI)
       { name: 'Central London Elite', city: 'London', address: '18 Baker Street', openingHours: '08:00 - 20:00', phone: '+44 20 7946 0958' },
       { name: 'City Centre Classic', city: 'Birmingham', address: '44 High Street', openingHours: '10:00 - 18:00', phone: '+44 121 634 8901' }
     ];
+    
 
     const branches = [];
     for (const b of branchData) {

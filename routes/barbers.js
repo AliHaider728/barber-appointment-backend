@@ -15,6 +15,7 @@ const parseSpecialties = (specialties) => {
   return [];
 };
 
+
 // CREATE - Barber Add (Ab 100% kaam karega)
 router.post('/', async (req, res) => {
   try {
