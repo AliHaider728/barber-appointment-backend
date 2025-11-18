@@ -5,10 +5,22 @@ import mongoose from 'mongoose';
 
 const router = express.Router();
 
-// CREATE APPOINTMENT
+// CREATE APPOINTMENT (Updated with payment fields)
 router.post('/', async (req, res) => {
   try {
-    const { customerName, email, phone, date, selectedServices, barber, branch, duration } = req.body;
+    const { 
+      customerName, 
+      email, 
+      phone, 
+      date, 
+      selectedServices, 
+      barber, 
+      branch, 
+      duration,
+      totalPrice,
+      payOnline = false,
+      paymentIntentId = null
+    } = req.body;
 
     // Validate required fields
     if (!customerName || !email || !phone || !date || !barber || !branch || !duration) {
@@ -46,23 +58,27 @@ router.post('/', async (req, res) => {
       };
     });
 
-    // Calculate total price
-    const totalPrice = enrichedServices.reduce((sum, s) => {
+    // Calculate total price if not provided
+    const calculatedTotalPrice = totalPrice || enrichedServices.reduce((sum, s) => {
       return sum + parseFloat(s.price.replace('£', '').trim());
     }, 0);
 
-    // Create appointment
+    // Create appointment with payment fields
     const appointment = new Appointment({
       customerName: customerName.trim(),
       email: email.trim().toLowerCase(),
       phone: phone.trim(),
       date: new Date(date),
       services: enrichedServices,
-      totalPrice,
+      totalPrice: calculatedTotalPrice,
+      totalPriceInCents: Math.round(calculatedTotalPrice * 100),
       duration,
       barber,
       branch,
-      status: 'pending'
+      status: 'pending',
+      payOnline,
+      paymentIntentId,
+      paymentStatus: payOnline && paymentIntentId ? 'paid' : 'pending'
     });
 
     await appointment.save();
@@ -111,7 +127,8 @@ router.get('/barber/:barberId/date/:date', async (req, res) => {
 
     const bookings = await Appointment.find({
       barber: barberId,
-      date: { $gte: start, $lt: end }
+      date: { $gte: start, $lt: end },
+      status: { $ne: 'rejected' } // Don't include rejected appointments
     }).select('date duration status');
 
     res.json(bookings);

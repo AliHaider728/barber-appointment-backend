@@ -13,43 +13,63 @@ import { v2 as cloudinary } from 'cloudinary';
 
 dotenv.config();
 
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key:    process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
-
 const app = express();
 
-// ✅ CORS FIX - Yeh sabse pehle lagao
+// CORS
 app.use(cors({
-  origin: '*', // Production main specific URLs use karo
+  origin: '*',
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-// Preflight requests handle karo
 app.options('*', cors());
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
-app.use('/uploads', express.static('uploads'));
 
-// MongoDB
-mongoose.set('strictQuery', false);
-mongoose.connect(process.env.MONGODB_URI)
-  .then(() => console.log('MongoDB Connected'))
-  .catch(err => console.error('MongoDB Error:', err));
+// Cloudinary Config (optional, won't crash if missing)
+try {
+  if (process.env.CLOUDINARY_CLOUD_NAME) {
+    cloudinary.config({
+      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+      api_key: process.env.CLOUDINARY_API_KEY,
+      api_secret: process.env.CLOUDINARY_API_SECRET,
+    });
+    console.log(' Cloudinary configured');
+  }
+} catch (err) {
+  console.log(' Cloudinary config failed:', err.message);
+}
 
-// Health Check
+// Health check BEFORE MongoDB
 app.get('/', (req, res) => {
   res.json({ 
     status: 'OK', 
     message: 'API Running',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    env: {
+      mongodbConfigured: !!process.env.MONGODB_URI,
+      cloudinaryConfigured: !!process.env.CLOUDINARY_CLOUD_NAME
+    }
   });
 });
+
+// MongoDB Connection
+if (!process.env.MONGODB_URI) {
+  console.error(' MONGODB_URI is not defined!');
+} else {
+  mongoose.set('strictQuery', false);
+  mongoose.connect(process.env.MONGODB_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  })
+    .then(() => console.log('  MongoDB Connected'))
+    .catch(err => {
+      console.error('  MongoDB Connection Error:', err.message);
+      // Don't crash the server
+    });
+}
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -64,13 +84,22 @@ app.use('*', (req, res) => {
   res.status(404).json({ error: 'Route not found' });
 });
 
-// Error Handler
+// Global Error Handler
 app.use((err, req, res, next) => {
-  console.error('ERROR:', err);
-  res.status(500).json({ error: err.message || 'Server Error' });
+  console.error(' Server Error:', err);
+  res.status(500).json({ 
+    error: err.message || 'Server Error',
+    stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+  });
 });
 
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+// Export for Vercel
+export default app;
+
+// Only listen in local development
+if (process.env.NODE_ENV !== 'production') {
+  const PORT = process.env.PORT || 5000;
+  app.listen(PORT, () => {
+    console.log(` Server running on port ${PORT}`);
+  });
+}
