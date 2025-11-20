@@ -1,66 +1,58 @@
-// routes/payments.js — FINAL CRASH-PROOF VERSION (Vercel + Local Safe)
+// routes/payments.js
 import express from 'express';
 import Appointment from '../models/Appointment.js';
 import dotenv from 'dotenv';
-
 dotenv.config();
+
 const router = express.Router();
 
-// Safe Stripe initialization — ye line crash nahi karegi chahe key na ho
+// Safe Stripe init
 let stripe = null;
-
 if (process.env.STRIPE_SECRET_KEY) {
   try {
     const { Stripe } = await import('stripe');
     stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-      apiVersion: '2023-10-16', // latest stable
+      apiVersion: '2023-10-16',
     });
-    console.log('Stripe initialized successfully');
+    console.log('Stripe loaded successfully');
   } catch (err) {
-    console.error('Stripe import failed:', err.message);
+    console.error('Stripe failed to load:', err.message);
   }
-} else {
-  console.log('STRIPE_SECRET_KEY not found — payments disabled (safe mode)');
 }
 
-// CREATE PAYMENT INTENT
+// 1. Create Payment Intent
 router.post('/create-payment-intent', async (req, res) => {
-  if (!stripe) {
-    return res.status(400).json({ 
-      error: 'Payment gateway not configured yet. Contact admin.' 
-    });
-  }
+  if (!stripe) return res.status(500).json({ error: 'Payment system not ready' });
+
+  const { totalPrice, customerEmail, customerName } = req.body;
+
+  if (!totalPrice || totalPrice <= 0)
+    return res.status(400).json({ error: 'Invalid amount' });
 
   try {
-    const { totalPrice, customerEmail, customerName } = req.body;
-
-    if (!totalPrice || totalPrice <= 0) {
-      return res.status(400).json({ error: 'Invalid amount' });
-    }
-
-    const amountInCents = Math.round(totalPrice * 100);
+    const amount = Math.round(totalPrice * 100);
 
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: amountInCents,
+      amount,
       currency: 'gbp',
       receipt_email: customerEmail || undefined,
       metadata: {
-        customerName: customerName || 'Anonymous',
-        customerEmail: customerEmail || 'no-email@temp.com'
-      }
+        customerName: customerName || 'Guest',
+        customerEmail: customerEmail || 'no-email@temp.com',
+      },
     });
 
     res.json({
       clientSecret: paymentIntent.client_secret,
-      paymentIntentId: paymentIntent.id
+      paymentIntentId: paymentIntent.id,
     });
-  } catch (error) {
-    console.error('Payment intent error:', error.message);
-    res.status(500).json({ error: 'Payment failed', details: error.message });
+  } catch (err) {
+    console.error('PaymentIntent error:', err.message);
+    res.status(500).json({ error: 'Failed to create payment intent' });
   }
 });
 
-// CREATE APPOINTMENT WITH PAYMENT
+// 2. Create Appointment AFTER Successful Payment (NO MORE 500!)
 router.post('/create-appointment-with-payment', async (req, res) => {
   try {
     const {
@@ -74,64 +66,70 @@ router.post('/create-appointment-with-payment', async (req, res) => {
       duration,
       totalPrice,
       paymentIntentId,
-      payOnline = true
+      payOnline = true,
     } = req.body;
 
-    // Agar payOnline true hai aur paymentIntentId hai → verify karo
+    // Verify payment if online
     if (payOnline && paymentIntentId && stripe) {
       try {
-        const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
-        if (paymentIntent.status !== 'succeeded') {
-          return res.status(400).json({ error: 'Payment not completed yet' });
+        const pi = await stripe.paymentIntents.retrieve(paymentIntentId);
+        if (pi.status !== 'succeeded') {
+          return res.status(400).json({ error: 'Payment not successful' });
         }
       } catch (err) {
-        return res.status(400).json({ error: 'Invalid payment intent' });
+        return res.status(400).json({ error: 'Invalid payment' });
       }
     }
 
-    // Appointment banao
+    // Create appointment
     const appointment = new Appointment({
       customerName: customerName?.trim() || 'Guest',
       email: email?.trim().toLowerCase() || 'no-email@temp.com',
       phone: phone?.trim() || 'N/A',
       date: new Date(date),
       services: selectedServices || [],
-      totalPrice: totalPrice || 0,
-      totalPriceInCents: Math.round((totalPrice || 0) * 100),
-      duration: duration || 30,
+      totalPrice: Number(totalPrice) || 0,
+      totalPriceInCents: Math.round((Number(totalPrice) || 0) * 100),
+      duration: Number(duration) || 30,
       barber,
       branch,
       status: payOnline && paymentIntentId ? 'confirmed' : 'pending',
       payOnline,
       paymentIntentId: payOnline ? paymentIntentId : null,
-      paymentStatus: payOnline && paymentIntentId ? 'paid' : 'pending'
+      paymentStatus: payOnline && paymentIntentId ? 'paid' : 'pending',
     });
 
     await appointment.save();
 
-    const populated = await Appointment.findById(appointment._id)
-      .populate('barber', 'name')
-      .populate('branch', 'name city address')
-      .populate('services.serviceRef', 'name price duration');
+    // SAFE POPULATE — never crash again!
+    let populated;
+    try {
+      populated = await Appointment.findById(appointment._id)
+        .populate('barber', 'name')
+        .populate('branch', 'name city address')
+        .populate('services.serviceRef', 'name price duration')
+        .lean({ getters: true });
+    } catch (err) {
+      console.warn('Populate failed, sending raw:', err.message);
+      populated = appointment.toObject();
+    }
 
-    res.status(201).json({ 
-      success: true, 
-      appointment: populated 
+    res.status(201).json({
+      success: true,
+      appointment: populated,
     });
-
   } catch (error) {
-    console.error('Create appointment error:', error.message);
-    res.status(500).json({ error: 'Failed to create appointment', details: error.message });
+    console.error('Appointment creation failed:', error);
+    res.status(500).json({
+      error: 'Failed to book appointment',
+      details: error.message,
+    });
   }
 });
 
-// Health check route
+// Health check
 router.get('/', (req, res) => {
-  res.json({ 
-    message: 'Payments route active',
-    stripeEnabled: !!stripe,
-    tip: stripe ? 'Ready for payments' : 'Add STRIPE_SECRET_KEY to enable payments'
-  });
+  res.json({ status: 'Payments API alive', stripe: !!stripe });
 });
 
 export default router;
