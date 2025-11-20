@@ -23,7 +23,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-// 🔥 NEW: GET shift for specific barber on specific date (for booking page)
+//  NEW: GET shift for specific barber on specific date (for booking page)
 router.get('/barber/:barberId/date/:date', async (req, res) => {
   try {
     const { barberId, date } = req.params;

@@ -19,7 +19,7 @@ router.post('/', async (req, res) => {
       duration,
       totalPrice,
       payOnline = false,
-      paymentIntentId = null
+      paymentIntentId = null  
     } = req.body;
 
     // Validate required fields
@@ -57,6 +57,7 @@ router.post('/', async (req, res) => {
         duration: service.duration
       };
     });
+    
 
     // Calculate total price if not provided
     const calculatedTotalPrice = totalPrice || enrichedServices.reduce((sum, s) => {

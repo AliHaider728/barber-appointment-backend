@@ -1,5 +1,4 @@
-// models/Appointment.js - UPDATED WITH PAYMENT FIELDS
-import mongoose from 'mongoose';
+ import mongoose from 'mongoose';
 
 const appointmentSchema = new mongoose.Schema({
   customerName: { type: String, required: true, trim: true },
