@@ -1,4 +1,4 @@
- import mongoose from 'mongoose';
+import mongoose from 'mongoose';
 
 const appointmentSchema = new mongoose.Schema({
   customerName: { type: String, required: true, trim: true },
@@ -22,6 +22,7 @@ const appointmentSchema = new mongoose.Schema({
     default: 'pending' 
   },
   
+  
   // PAYMENT FIELDS - YE NAYI FIELDS HAIN
   paymentIntentId: { type: String }, // Stripe payment intent ID
   paymentStatus: { 
@@ -32,6 +33,13 @@ const appointmentSchema = new mongoose.Schema({
   payOnline: { type: Boolean, default: false }, // true = online payment, false = pay at salon
    
 }, { timestamps: true });
+
+// FIX: Added pre-save hook for additional validation or logic if needed (e.g., timezone normalization)
+appointmentSchema.pre('save', function(next) {
+  // Example: Normalize date to UTC if needed
+  this.date = new Date(this.date.toUTCString());
+  next();
+});
 
 appointmentSchema.index({ barber: 1, date: 1 });
 appointmentSchema.index({ branch: 1, date: 1 });

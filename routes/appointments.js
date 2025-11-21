@@ -64,12 +64,25 @@ router.post('/', async (req, res) => {
       return sum + parseFloat(s.price.replace('£', '').trim());
     }, 0);
 
+    // FIX: Add basic conflict check (similar to payment route)
+    const appointmentDate = new Date(date); // Assuming UTC
+    const endDate = new Date(appointmentDate.getTime() + duration * 60000);
+    const conflictingBookings = await Appointment.find({
+      barber,
+      date: { $lt: endDate },
+      $or: [{ status: { $ne: 'rejected' } }],
+    }).where({ $expr: { $gt: [{ $add: ['$date', { $multiply: ['$duration', 60000] }] }, appointmentDate] } });
+
+    if (conflictingBookings.length > 0) {
+      return res.status(409).json({ error: 'Time slot conflict detected' });
+    }
+
     // Create appointment with payment fields
     const appointment = new Appointment({
       customerName: customerName.trim(),
       email: email.trim().toLowerCase(),
       phone: phone.trim(),
-      date: new Date(date),
+      date: appointmentDate, // FIX: Ensure UTC
       services: enrichedServices,
       totalPrice: calculatedTotalPrice,
       totalPriceInCents: Math.round(calculatedTotalPrice * 100),
@@ -81,6 +94,7 @@ router.post('/', async (req, res) => {
       paymentIntentId,
       paymentStatus: payOnline && paymentIntentId ? 'paid' : 'pending'
     });
+    
 
     await appointment.save();
 
