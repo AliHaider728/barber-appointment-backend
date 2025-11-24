@@ -23,6 +23,7 @@ const appointmentSchema = new mongoose.Schema({
   },
   
   
+  
   // PAYMENT FIELDS - YE NAYI FIELDS HAIN
   paymentIntentId: { type: String }, // Stripe payment intent ID
   paymentStatus: { 

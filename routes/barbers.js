@@ -117,6 +117,7 @@ router.get('/:id', async (req, res) => {
   }
 });
 
+
 // UPDATE barber
 router.put('/:id', async (req, res) => {
   try {

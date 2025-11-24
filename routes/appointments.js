@@ -30,7 +30,6 @@ router.post('/', async (req, res) => {
     if (!selectedServices || !Array.isArray(selectedServices) || selectedServices.length === 0) {
       return res.status(400).json({ message: 'At least one service is required' });
     }
-
     // Validate ObjectIds
     if (!mongoose.Types.ObjectId.isValid(barber) || !mongoose.Types.ObjectId.isValid(branch)) {
       return res.status(400).json({ message: 'Invalid barber or branch ID' });

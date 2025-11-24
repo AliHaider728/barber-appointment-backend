@@ -1,9 +1,9 @@
-// routes/payments.js — FINAL CRASH-PROOF VERSION (Vercel + Local Safe)
 import express from 'express';
 import Appointment from '../models/Appointment.js';
 import Service from '../models/Service.js'; // Added import for service enrichment
 import mongoose from 'mongoose'; // Added for ObjectId validation
 import dotenv from 'dotenv';
+
 
 dotenv.config();
 const router = express.Router();
@@ -149,7 +149,7 @@ router.post('/create-appointment-with-payment', async (req, res) => {
     if (conflictingBookings.length > 0) {
       return res.status(409).json({ error: 'Time slot conflict detected' });
     }
-
+    
     // Appointment banao
     const appointment = new Appointment({
       customerName: customerName?.trim() || 'Guest',
