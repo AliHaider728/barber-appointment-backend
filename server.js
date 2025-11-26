@@ -36,7 +36,7 @@ console.log('Cloudinary config loaded:', {
 // EXPRESS APP
 const app = express();
 
-//        CORS FIX
+//CORS 
 const allowedOrigins = [
   'http://localhost:5173',
   'https://barber-appointment-six.vercel.app',
@@ -86,7 +86,7 @@ app.get('/', async (req, res) => {
   }
 });
 
-//         ROUTES
+//         ROUTES 
 app.use('/api/auth', authRoutes);
 app.use('/api/appointments', appointmentRoutes);
 app.use('/api/barbers', barberRoutes);
@@ -106,10 +106,10 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: err.message || 'Server Error' });
 });
 
-//   🚀 THE IMPORTANT PART
+ 
 //   VERCEL SERVERLESS FIX
 
-export default app;
+// export default app;
 
 console.log('SUPABASE_URL from env:', process.env.SUPABASE_URL);
 console.log('SUPABASE_SERVICE_ROLE_KEY:', process.env.SUPABASE_SERVICE_ROLE_KEY ? 'Set' : 'Not Set');
