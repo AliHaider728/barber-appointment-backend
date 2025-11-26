@@ -109,7 +109,7 @@ app.use((err, req, res, next) => {
  
 //   VERCEL SERVERLESS FIX
 
-// export default app;
+export default app;
 
 console.log('SUPABASE_URL from env:', process.env.SUPABASE_URL);
 console.log('SUPABASE_SERVICE_ROLE_KEY:', process.env.SUPABASE_SERVICE_ROLE_KEY ? 'Set' : 'Not Set');
