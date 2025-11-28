@@ -13,6 +13,7 @@ import branchRoutes from './routes/branches.js';
 import serviceRoutes from './routes/services.js';
 import barberShiftRoutes from './routes/barberShifts.js';
 import paymentRoute from './routes/payments.js';
+import leaveRoutes from './routes/leaves.js'; 
 
 dotenv.config();
 
@@ -61,13 +62,13 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 app.use('/uploads', express.static('uploads'));
 
-//     MONGODB CONNECTION
+// MONGODB CONNECTION
 mongoose.set('strictQuery', false);
 mongoose.connect(process.env.MONGODB_URI)
   .then(() => console.log('MongoDB Connected'))
   .catch(err => console.error('MongoDB Error:', err));
 
-//   HEALTH CHECK ENDPOINT
+// HEALTH CHECK ENDPOINT
 app.get('/', async (req, res) => {
   try {
     await supabaseClient.auth.getSession(); 
@@ -86,7 +87,7 @@ app.get('/', async (req, res) => {
   }
 });
 
-//         ROUTES 
+// ROUTES 
 app.use('/api/auth', authRoutes);
 app.use('/api/appointments', appointmentRoutes);
 app.use('/api/barbers', barberRoutes);
@@ -94,21 +95,18 @@ app.use('/api/barber-shifts', barberShiftRoutes);
 app.use('/api/branches', branchRoutes);
 app.use('/api/services', serviceRoutes);
 app.use('/api/payments', paymentRoute);
-
+app.use('/api/leaves', leaveRoutes);   
 // 404 PAGE
 app.use('*', (req, res) => {
   res.status(404).json({ error: 'Route not found' });
 });
-
 // GLOBAL ERROR HANDLER
 app.use((err, req, res, next) => {
   console.error('ERROR:', err);
   res.status(500).json({ error: err.message || 'Server Error' });
 });
 
- 
 //   VERCEL SERVERLESS FIX
-
 export default app;
 
 console.log('SUPABASE_URL from env:', process.env.SUPABASE_URL);

@@ -4,6 +4,7 @@ import Branch from './models/Branch.js';
 import Service from './models/Service.js';
 import Barber from './models/Barber.js';
 import BarberShift from './models/BarberShift.js';
+import { supabaseClient as supabase } from './lib/supabase.js'
 
 dotenv.config();
 mongoose.set('strictQuery', false);
@@ -71,13 +72,19 @@ mongoose.connect(process.env.MONGODB_URI)
             .slice(0, 3 + Math.floor(Math.random() * 2))
             .map(s => s.name);
 
-          allBarbers.push({
+          const barberData = {
             name: `${maleNames[(i + branches.indexOf(branch)) % maleNames.length]} ${branch.city}`,
             experienceYears: 3 + i + Math.floor(Math.random() * 3),
             gender: 'male',
             specialties,
             branch: branch._id
-          });
+          };
+
+          // Generate email and password for barber
+          barberData.email = `${barberData.name.toLowerCase().replace(/\s+/g, '')}@barbershop.com`;
+          barberData.password = 'barberpass123';  // Default password - in production, generate random and email it
+
+          allBarbers.push(barberData);
         }
 
         for (let i = 0; i < 2; i++) {
@@ -86,18 +93,41 @@ mongoose.connect(process.env.MONGODB_URI)
             .slice(0, 3 + Math.floor(Math.random() * 2))
             .map(s => s.name);
 
-          allBarbers.push({
+          const barberData = {
             name: `${femaleNames[(i + branches.indexOf(branch)) % femaleNames.length]} ${branch.city}`,
             experienceYears: 2 + i + Math.floor(Math.random() * 4),
             gender: 'female',
             specialties,
             branch: branch._id
-          });
+          };
+
+          // Generate email and password for barber
+          barberData.email = `${barberData.name.toLowerCase().replace(/\s+/g, '')}@barbershop.com`;
+          barberData.password = 'barberpass123';  // Default password
+
+          allBarbers.push(barberData);
         }
       }
 
-      await Barber.insertMany(allBarbers);
-      console.log(`Barbers created: ${allBarbers.length}`);
+      // Create barbers in MongoDB
+      const createdBarbers = await Barber.insertMany(allBarbers);
+      console.log(`Barbers created in MongoDB: ${createdBarbers.length}`);
+
+      // Create corresponding Supabase users with role 'barber'
+      for (const barber of createdBarbers) {
+        const { data, error } = await supabase.auth.admin.createUser({
+          email: barber.email,
+          password: barber.password,
+          email_confirm: true,  // Auto-confirm for seeding
+          user_metadata: { role: 'barber', barberId: barber._id.toString() }  // Store role and link to Mongo ID
+        });
+
+        if (error) {
+          console.error(`Failed to create Supabase user for ${barber.name}:`, error);
+        } else {
+          console.log(`Supabase user created for ${barber.name}: ${data.user.id}`);
+        }
+      }
     } else {
       console.log('Barbers already exist, skipping creation.');
     }
@@ -152,5 +182,3 @@ mongoose.connect(process.env.MONGODB_URI)
     console.error('Seed failed:', err.message);
     process.exit(1);
   });
-  
-  

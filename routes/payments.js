@@ -1,7 +1,7 @@
 import express from 'express';
 import Appointment from '../models/Appointment.js';
-import Service from '../models/Service.js'; // Added import for service enrichment
-import mongoose from 'mongoose'; // Added for ObjectId validation
+import Service from '../models/Service.js'; 
+import mongoose from 'mongoose'; 
 import dotenv from 'dotenv';
 
 
@@ -24,6 +24,45 @@ if (process.env.STRIPE_SECRET_KEY) {
 } else {
   console.log('STRIPE_SECRET_KEY not found — payments disabled (safe mode)');
 }
+
+//  NEW: Middleware to verify barber token  
+const verifyBarber = (req, res, next) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    
+    if (!token) {
+      return res.status(401).json({ message: 'No token provided' });
+    }
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+    
+    if (decoded.role !== 'barber') {
+      return res.status(403).json({ message: 'Access denied - barber only' });
+    }
+
+    req.barber = decoded;
+    next();
+  } catch (error) {
+    res.status(401).json({ message: 'Invalid token' });
+  }
+};
+
+//  NEW: GET bookings for logged-in barber (for dashboard - to calculate paid/unpaid)
+router.get('/barber/me/bookings', verifyBarber, async (req, res) => {
+  try {
+    const barberId = req.barber.id;
+    
+    const bookings = await Appointment.find({ barber: barberId })
+      .populate('branch', 'name city')
+      .populate('services.serviceRef', 'name price duration')
+      .sort({ date: -1 });
+
+    res.json(bookings);
+  } catch (error) {
+    console.error('Get barber bookings error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
 
 // CREATE PAYMENT INTENT
 router.post('/create-payment-intent', async (req, res) => {
@@ -79,7 +118,7 @@ router.post('/create-appointment-with-payment', async (req, res) => {
       payOnline = true
     } = req.body;
 
-    // Validate required fields
+    // Validation
     if (!customerName || !email || !phone || !date || !barber || !branch || !duration) {
       return res.status(400).json({ message: 'All fields are required' });
     }
@@ -195,4 +234,4 @@ router.get('/', (req, res) => {
   });
 });
 
-export default router;
+export default router; 

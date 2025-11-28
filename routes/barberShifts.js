@@ -1,4 +1,3 @@
- 
 import express from 'express';
 import BarberShift from '../models/BarberShift.js';
 import mongoose from 'mongoose';
@@ -112,4 +111,4 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
-export default router;
+export default router; 
