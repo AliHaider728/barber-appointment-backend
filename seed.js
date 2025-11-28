@@ -4,10 +4,15 @@ import Branch from './models/Branch.js';
 import Service from './models/Service.js';
 import Barber from './models/Barber.js';
 import BarberShift from './models/BarberShift.js';
-import { supabaseClient as supabase } from './lib/supabase.js'
+import { createClient } from '@supabase/supabase-js';   
 
 dotenv.config();
 mongoose.set('strictQuery', false);
+
+// Initialize Supabase admin client  
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;  // Add this to your .env - get from Supabase dashboard
+const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 const maleNames = ['James', 'Ahmed', 'Liam', 'Omar', 'Ryan', 'Hassan', 'Zain', 'Ali'];
 const femaleNames = ['Sarah', 'Emma', 'Aisha', 'Fatima', 'Zara', 'Nadia', 'Hira'];
