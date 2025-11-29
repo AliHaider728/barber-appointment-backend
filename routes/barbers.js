@@ -1,41 +1,8 @@
 import express from 'express';
 import Barber from '../models/Barber.js';
 import mongoose from 'mongoose';
-import jwt from 'jsonwebtoken'; // Import jwt for verifyToken
 
 const router = express.Router();
-
-// Verify Token Middleware (from auth.js, but defined here for completeness)
-const verifyToken = (req, res, next) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    return res.status(401).json({ message: 'No token provided' });
-  }
-  const token = authHeader.split(' ')[1];
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded;
-    next();
-  } catch (err) {
-    return res.status(401).json({ message: 'Invalid token' });
-  }
-};
-
-// Is Admin Middleware
-const isAdmin = (req, res, next) => {
-  if (req.user.role !== 'admin') {
-    return res.status(403).json({ message: 'Access denied - Admin only' });
-  }
-  next();
-};
-
-// Is Barber or Admin
-const isBarberOrAdmin = (req, res, next) => {
-  if (req.user.role !== 'barber' && req.user.role !== 'admin') {
-    return res.status(403).json({ message: 'Access denied' });
-  }
-  next();
-};
 
 // Helper to clean specialties
 const parseSpecialties = (specialties) => {
@@ -49,8 +16,8 @@ const parseSpecialties = (specialties) => {
 };
 
 
-// CREATE - Barber Add (Admin only)
-router.post('/', verifyToken, isAdmin, async (req, res) => {
+// CREATE - Barber Add (Ab 100% kaam karega)
+router.post('/', async (req, res) => {
   try {
     console.log('POST /api/barbers - Received:', req.body); // ← YE DEBUG LINE ZARURI HAI
 
@@ -125,8 +92,8 @@ router.post('/', verifyToken, isAdmin, async (req, res) => {
   }
 });
 
-// GET all barbers (Auth required, anyone with auth can view)
-router.get('/', verifyToken, async (req, res) => {
+// GET all barbers
+router.get('/', async (req, res) => {
   try {
     const barbers = await Barber.find().populate('branch', 'name city').sort({ createdAt: -1 });
     res.json(barbers);
@@ -136,20 +103,14 @@ router.get('/', verifyToken, async (req, res) => {
   }
 });
 
-// GET single barber (Barber can get own, or admin)
-router.get('/:id', verifyToken, async (req, res) => {
+// GET single barber
+router.get('/:id', async (req, res) => {
   try {
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
       return res.status(400).json({ message: 'Invalid ID' });
     }
     const barber = await Barber.findById(req.params.id).populate('branch', 'name city');
     if (!barber) return res.status(404).json({ message: 'Barber not found' });
-
-    // Check access
-    if (req.user.role !== 'admin' && req.user.barberRef?.toString() !== req.params.id) {
-      return res.status(403).json({ message: 'Access denied' });
-    }
-
     res.json(barber);
   } catch (error) {
     res.status(500).json({ message: 'Server error' });
@@ -157,8 +118,8 @@ router.get('/:id', verifyToken, async (req, res) => {
 });
 
 
-// UPDATE barber (Admin only)
-router.put('/:id', verifyToken, isAdmin, async (req, res) => {
+// UPDATE barber
+router.put('/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const { name, experienceYears, gender, specialties, branch } = req.body;
@@ -194,8 +155,8 @@ router.put('/:id', verifyToken, isAdmin, async (req, res) => {
   }
 });
 
-// DELETE barber (Admin only)
-router.delete('/:id', verifyToken, isAdmin, async (req, res) => {
+// DELETE barber
+router.delete('/:id', async (req, res) => {
   try {
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
       return res.status(400).json({ message: 'Invalid ID' });
@@ -208,4 +169,4 @@ router.delete('/:id', verifyToken, isAdmin, async (req, res) => {
   }
 });
 
-export default router;
+export default router; 

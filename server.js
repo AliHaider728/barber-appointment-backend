@@ -2,6 +2,7 @@ import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import { createClient } from '@supabase/supabase-js';
 import { v2 as cloudinary } from 'cloudinary';
 
 // ROUTES
@@ -15,6 +16,11 @@ import paymentRoute from './routes/payments.js';
 import leaveRoutes from './routes/leaves.js'; 
 
 dotenv.config();
+
+// SUPABASE
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+export const supabaseClient = createClient(supabaseUrl, supabaseServiceKey);
 
 // CLOUDINARY
 cloudinary.config({
@@ -63,12 +69,22 @@ mongoose.connect(process.env.MONGODB_URI)
   .catch(err => console.error('MongoDB Error:', err));
 
 // HEALTH CHECK ENDPOINT
-app.get('/', (req, res) => {
-  res.json({
-    status: 'OK',
-    message: 'API Running',
-    timestamp: new Date().toISOString()
-  });
+app.get('/', async (req, res) => {
+  try {
+    await supabaseClient.auth.getSession(); 
+    res.json({
+      status: 'OK',
+      message: 'API Running',
+      supabase: 'Connected',
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    res.json({
+      status: 'OK',
+      message: 'API Running (Supabase error: ' + err.message + ')',
+      timestamp: new Date().toISOString()
+    });
+  }
 });
 
 // ROUTES 
@@ -92,3 +108,6 @@ app.use((err, req, res, next) => {
 
 //   VERCEL SERVERLESS FIX
 export default app;
+
+console.log('SUPABASE_URL from env:', process.env.SUPABASE_URL);
+console.log('SUPABASE_SERVICE_ROLE_KEY:', process.env.SUPABASE_SERVICE_ROLE_KEY ? 'Set' : 'Not Set');
