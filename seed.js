@@ -11,7 +11,7 @@ mongoose.set('strictQuery', false);
 
 // Initialize Supabase admin client  
 const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;  // Add this to your .env - get from Supabase dashboard
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 const maleNames = ['James', 'Ahmed', 'Liam', 'Omar', 'Ryan', 'Hassan', 'Zain', 'Ali'];
@@ -21,23 +21,22 @@ mongoose.connect(process.env.MONGODB_URI)
   .then(async () => {
     console.log('Starting Smart Seeding...');
 
-    // 1. BRANCHES — insert only if not exists
+    // 1. BRANCHES
     const branchData = [
       { name: 'Deansgate Premium', city: 'Manchester', address: '12 Deansgate', openingHours: '09:00 - 19:00', phone: '+44 161 834 5678' },
       { name: 'Central London Elite', city: 'London', address: '18 Baker Street', openingHours: '08:00 - 20:00', phone: '+44 20 7946 0958' },
       { name: 'City Centre Classic', city: 'Birmingham', address: '44 High Street', openingHours: '10:00 - 18:00', phone: '+44 121 634 8901' }
     ];
     
-
     const branches = [];
     for (const b of branchData) {
       let branch = await Branch.findOne({ name: b.name });
       if (!branch) branch = await Branch.create(b);
       branches.push(branch);
     }
-    console.log(`Branches ready: ${branches.length}`);
+    console.log(`✓ Branches ready: ${branches.length}`);
 
-    // 2. SERVICES — insert only if not exists
+    // 2. SERVICES
     const serviceData = [
       { name: "Men's Haircut", duration: "30 minutes", price: "£25", gender: "male" },
       { name: "Beard Trim", duration: "20 minutes", price: "£15", gender: "male" },
@@ -59,9 +58,9 @@ mongoose.connect(process.env.MONGODB_URI)
       if (!service) service = await Service.create(s);
       allServices.push(service);
     }
-    console.log(`Services ready: ${allServices.length}`);
+    console.log(`✓ Services ready: ${allServices.length}`);
 
-    // 3. BARBERS — only create if none exist
+    // 3. BARBERS
     const existingBarbers = await Barber.countDocuments();
     if (existingBarbers === 0) {
       console.log('Creating new barbers...');
@@ -71,44 +70,44 @@ mongoose.connect(process.env.MONGODB_URI)
         const maleServices = allServices.filter(s => s.gender === 'male');
         const femaleServices = allServices.filter(s => s.gender === 'female');
 
+        // Create 3 male barbers per branch
         for (let i = 0; i < 3; i++) {
           const specialties = maleServices
             .sort(() => 0.5 - Math.random())
             .slice(0, 3 + Math.floor(Math.random() * 2))
             .map(s => s.name);
 
+          const barberName = `${maleNames[(i + branches.indexOf(branch)) % maleNames.length]} ${branch.city}`;
           const barberData = {
-            name: `${maleNames[(i + branches.indexOf(branch)) % maleNames.length]} ${branch.city}`,
+            name: barberName,
             experienceYears: 3 + i + Math.floor(Math.random() * 3),
             gender: 'male',
             specialties,
-            branch: branch._id
+            branch: branch._id,
+            email: `${barberName.toLowerCase().replace(/\s+/g, '')}@barbershop.com`,
+            password: 'barberpass123'
           };
-
-          // Generate email and password for barber
-          barberData.email = `${barberData.name.toLowerCase().replace(/\s+/g, '')}@barbershop.com`;
-          barberData.password = 'barberpass123';  // Default password - in production, generate random and email it
 
           allBarbers.push(barberData);
         }
 
+        // Create 2 female barbers per branch
         for (let i = 0; i < 2; i++) {
           const specialties = femaleServices
             .sort(() => 0.5 - Math.random())
             .slice(0, 3 + Math.floor(Math.random() * 2))
             .map(s => s.name);
 
+          const barberName = `${femaleNames[(i + branches.indexOf(branch)) % femaleNames.length]} ${branch.city}`;
           const barberData = {
-            name: `${femaleNames[(i + branches.indexOf(branch)) % femaleNames.length]} ${branch.city}`,
+            name: barberName,
             experienceYears: 2 + i + Math.floor(Math.random() * 4),
             gender: 'female',
             specialties,
-            branch: branch._id
+            branch: branch._id,
+            email: `${barberName.toLowerCase().replace(/\s+/g, '')}@barbershop.com`,
+            password: 'barberpass123'
           };
-
-          // Generate email and password for barber
-          barberData.email = `${barberData.name.toLowerCase().replace(/\s+/g, '')}@barbershop.com`;
-          barberData.password = 'barberpass123';  // Default password
 
           allBarbers.push(barberData);
         }
@@ -116,28 +115,41 @@ mongoose.connect(process.env.MONGODB_URI)
 
       // Create barbers in MongoDB
       const createdBarbers = await Barber.insertMany(allBarbers);
-      console.log(`Barbers created in MongoDB: ${createdBarbers.length}`);
+      console.log(`✓ Barbers created in MongoDB: ${createdBarbers.length}`);
 
-      // Create corresponding Supabase users with role 'barber'
+      // Create Supabase users with BARBER role
       for (const barber of createdBarbers) {
-        const { data, error } = await supabase.auth.admin.createUser({
-          email: barber.email,
-          password: barber.password,
-          email_confirm: true,  // Auto-confirm for seeding
-          user_metadata: { role: 'barber', barberId: barber._id.toString() }  // Store role and link to Mongo ID
-        });
+        try {
+          const { data, error } = await supabase.auth.admin.createUser({
+            email: barber.email,
+            password: barber.password,
+            email_confirm: true,
+            user_metadata: { 
+              role: 'barber',
+              barberId: barber._id.toString(),
+              full_name: barber.name
+            }
+          });
 
-        if (error) {
-          console.error(`Failed to create Supabase user for ${barber.name}:`, error);
-        } else {
-          console.log(`Supabase user created for ${barber.name}: ${data.user.id}`);
+          if (error) {
+            console.error(`✗ Failed to create Supabase user for ${barber.name}:`, error.message);
+          } else {
+            console.log(`✓ Supabase barber user created: ${barber.email}`);
+          }
+        } catch (err) {
+          console.error(`✗ Error creating user ${barber.email}:`, err.message);
         }
       }
+
+      console.log('\n📋 BARBER CREDENTIALS:');
+      createdBarbers.forEach(b => {
+        console.log(`Email: ${b.email} | Password: barberpass123`);
+      });
     } else {
-      console.log('Barbers already exist, skipping creation.');
+      console.log('✓ Barbers already exist, skipping creation.');
     }
 
-    // 4. SHIFTS — only create if none exist
+    // 4. SHIFTS
     const existingShifts = await BarberShift.countDocuments();
     if (existingShifts === 0) {
       console.log('Creating new shifts...');
@@ -175,12 +187,13 @@ mongoose.connect(process.env.MONGODB_URI)
       }
 
       await BarberShift.insertMany(shifts);
-      console.log(`Shifts created: ${shifts.length}`);
+      console.log(`✓ Shifts created: ${shifts.length}`);
     } else {
-      console.log('Shifts already exist, skipping creation.');
+      console.log('✓ Shifts already exist, skipping creation.');
     }
 
-    console.log('Smart seeding complete (no duplicates, no data loss).');
+    console.log('\n✅ Smart seeding complete (no duplicates, no data loss).');
+    console.log('🔐 Barbers can now login with their email and password "barberpass123"');
     mongoose.connection.close();
   })
   .catch(err => {

@@ -1,25 +1,48 @@
 import mongoose from 'mongoose';
-import bcrypt from 'bcryptjs';   
 
 const userSchema = new mongoose.Schema({
-  supabaseId: { type: String, unique: true },   
-  email: { type: String, unique: true, required: true },
-  fullName: { type: String },
-  phone: { type: String },
-  password: String,  // Optional for legacy
+  supabaseId: { 
+    type: String, 
+    unique: true, 
+    sparse: true,  // Allow null values (legacy support)
+    required: false
+  },
+  email: { 
+    type: String, 
+    unique: true, 
+    required: true,
+    lowercase: true,
+    trim: true
+  },
+  fullName: { 
+    type: String,
+    default: 'User'
+  },
+  phone: { 
+    type: String,
+    default: null
+  },
   role: { 
     type: String, 
-    enum: ['user', 'barber', 'admin'], 
+    enum: ['user'],  // Only 'user' for this model
     default: 'user' 
   },
-  barberRef: { type: mongoose.Schema.Types.ObjectId, ref: 'Barber', default: null }  
+  profileImage: {
+    type: String,
+    default: null
+  },
+  address: {
+    type: String,
+    default: null
+  },
+  city: {
+    type: String,
+    default: null
+  }
 }, { timestamps: true });
 
-userSchema.pre('save', async function(next) {
-  if (this.isModified('password')) {
-    this.password = await bcrypt.hash(this.password, 10);
-  }
-  next();
-});
+// Index for faster lookups
+userSchema.index({ supabaseId: 1 });
+userSchema.index({ email: 1 });
 
 export default mongoose.model('User', userSchema);
