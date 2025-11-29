@@ -4,15 +4,10 @@ import Branch from './models/Branch.js';
 import Service from './models/Service.js';
 import Barber from './models/Barber.js';
 import BarberShift from './models/BarberShift.js';
-import { createClient } from '@supabase/supabase-js';   
+import bcrypt from 'bcryptjs';  // Add for password hashing
 
 dotenv.config();
 mongoose.set('strictQuery', false);
-
-// Initialize Supabase admin client  
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;  // Add this to your .env - get from Supabase dashboard
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 const maleNames = ['James', 'Ahmed', 'Liam', 'Omar', 'Ryan', 'Hassan', 'Zain', 'Ali'];
 const femaleNames = ['Sarah', 'Emma', 'Aisha', 'Fatima', 'Zara', 'Nadia', 'Hira'];
@@ -61,7 +56,7 @@ mongoose.connect(process.env.MONGODB_URI)
     }
     console.log(`Services ready: ${allServices.length}`);
 
-    // 3. BARBERS — only create if none exist
+    // 3. BARBERS — only create if none exist, and only assign email/pwd to 2-3
     const existingBarbers = await Barber.countDocuments();
     if (existingBarbers === 0) {
       console.log('Creating new barbers...');
@@ -85,9 +80,11 @@ mongoose.connect(process.env.MONGODB_URI)
             branch: branch._id
           };
 
-          // Generate email and password for barber
-          barberData.email = `${barberData.name.toLowerCase().replace(/\s+/g, '')}@barbershop.com`;
-          barberData.password = 'barberpass123';  // Default password - in production, generate random and email it
+          // Only assign email/pwd to first 2-3 barbers overall
+          if (allBarbers.length < 3) {
+            barberData.email = `${barberData.name.toLowerCase().replace(/\s+/g, '')}@barbershop.com`;
+            barberData.password = await bcrypt.hash('barberpass123', 10);  // Hash password
+          }
 
           allBarbers.push(barberData);
         }
@@ -106,33 +103,19 @@ mongoose.connect(process.env.MONGODB_URI)
             branch: branch._id
           };
 
-          // Generate email and password for barber
-          barberData.email = `${barberData.name.toLowerCase().replace(/\s+/g, '')}@barbershop.com`;
-          barberData.password = 'barberpass123';  // Default password
+          // Only if under limit
+          if (allBarbers.length < 3) {
+            barberData.email = `${barberData.name.toLowerCase().replace(/\s+/g, '')}@barbershop.com`;
+            barberData.password = await bcrypt.hash('barberpass123', 10);
+          }
 
           allBarbers.push(barberData);
         }
       }
 
-      // Create barbers in MongoDB
+      // Create barbers in MongoDB (no Supabase)
       const createdBarbers = await Barber.insertMany(allBarbers);
       console.log(`Barbers created in MongoDB: ${createdBarbers.length}`);
-
-      // Create corresponding Supabase users with role 'barber'
-      for (const barber of createdBarbers) {
-        const { data, error } = await supabase.auth.admin.createUser({
-          email: barber.email,
-          password: barber.password,
-          email_confirm: true,  // Auto-confirm for seeding
-          user_metadata: { role: 'barber', barberId: barber._id.toString() }  // Store role and link to Mongo ID
-        });
-
-        if (error) {
-          console.error(`Failed to create Supabase user for ${barber.name}:`, error);
-        } else {
-          console.log(`Supabase user created for ${barber.name}: ${data.user.id}`);
-        }
-      }
     } else {
       console.log('Barbers already exist, skipping creation.');
     }
