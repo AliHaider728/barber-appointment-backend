@@ -2,7 +2,7 @@ import express from 'express';
 import { supabaseClient } from '../lib/supabase.js';
 import User from '../models/User.js';
 import Barber from '../models/Barber.js';
-import Admin from '../models/Admin.js';
+import Admin from '../models/Admins.js';
 
 const router = express.Router();
 
