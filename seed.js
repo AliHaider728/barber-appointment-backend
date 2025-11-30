@@ -17,6 +17,13 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey);
 const maleNames = ['James', 'Ahmed', 'Liam', 'Omar', 'Ryan', 'Hassan', 'Zain', 'Ali'];
 const femaleNames = ['Sarah', 'Emma', 'Aisha', 'Fatima', 'Zara', 'Nadia', 'Hira'];
 
+// ✅ FIXED: Different passwords for first 3 barbers (for testing)
+const testBarberCredentials = [
+  { email: 'james@barbershop.com', password: 'james123' },
+  { email: 'ahmed@barbershop.com', password: 'ahmed123' },
+  { email: 'sarah@barbershop.com', password: 'sarah123' }
+];
+
 mongoose.connect(process.env.MONGODB_URI)
   .then(async () => {
     console.log('Starting Smart Seeding...');
@@ -81,8 +88,6 @@ mongoose.connect(process.env.MONGODB_URI)
           console.error('✗ Failed to create admin:', error.message);
         } else {
           console.log('✓ Admin created successfully!');
-          console.log('📧 Admin Email: admin@barbershop.com');
-          console.log('🔑 Admin Password: admin123');
         }
       } else {
         console.log('✓ Admin already exists');
@@ -91,12 +96,12 @@ mongoose.connect(process.env.MONGODB_URI)
       console.error('✗ Admin creation error:', err.message);
     }
 
-    // 4. BARBERS
+    // 4. BARBERS - ✅ FIXED WITH DIFFERENT CREDENTIALS
     const existingBarbers = await Barber.countDocuments();
     if (existingBarbers === 0) {
       console.log('Creating new barbers...');
       const allBarbers = [];
-      let barberCounter = 1;
+      let barberCounter = 0;
 
       for (const branch of branches) {
         const maleServices = allServices.filter(s => s.gender === 'male');
@@ -111,15 +116,20 @@ mongoose.connect(process.env.MONGODB_URI)
 
           const barberName = `${maleNames[(i + branches.indexOf(branch)) % maleNames.length]} ${branch.city}`;
           
-          // FIXED: Use simple sequential emails
+          // ✅ Use custom credentials for first 3 barbers, then generic ones
+          const credentials = testBarberCredentials[barberCounter] || {
+            email: `barber${barberCounter + 1}@barbershop.com`,
+            password: 'barber123'
+          };
+
           const barberData = {
             name: barberName,
             experienceYears: 3 + i + Math.floor(Math.random() * 3),
             gender: 'male',
             specialties,
             branch: branch._id,
-            email: `barber${barberCounter}@barbershop.com`, // CHANGED
-            password: 'barber123' // CHANGED - Same password for all
+            email: credentials.email,
+            password: credentials.password
           };
 
           allBarbers.push(barberData);
@@ -135,15 +145,14 @@ mongoose.connect(process.env.MONGODB_URI)
 
           const barberName = `${femaleNames[(i + branches.indexOf(branch)) % femaleNames.length]} ${branch.city}`;
           
-          // FIXED: Use simple sequential emails
           const barberData = {
             name: barberName,
             experienceYears: 2 + i + Math.floor(Math.random() * 4),
             gender: 'female',
             specialties,
             branch: branch._id,
-            email: `barber${barberCounter}@barbershop.com`, // CHANGED
-            password: 'barber123' // CHANGED
+            email: `barber${barberCounter + 1}@barbershop.com`,
+            password: 'barber123'
           };
 
           allBarbers.push(barberData);
@@ -161,7 +170,7 @@ mongoose.connect(process.env.MONGODB_URI)
           const { data, error } = await supabase.auth.admin.createUser({
             email: barber.email,
             password: barber.password,
-            email_confirm: true, // Auto-confirm email
+            email_confirm: true,
             user_metadata: { 
               role: 'barber',
               barberId: barber._id.toString(),
@@ -179,9 +188,10 @@ mongoose.connect(process.env.MONGODB_URI)
         }
       }
 
-      console.log('\n📋 BARBER CREDENTIALS (All use password: barber123):');
-      createdBarbers.forEach((b, idx) => {
-        console.log(`${idx + 1}. Email: ${b.email} | Name: ${b.name}`);
+      console.log('\n📋 TEST BARBER CREDENTIALS (Different Passwords):');
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      testBarberCredentials.forEach((cred, idx) => {
+        console.log(`${idx + 1}. Email: ${cred.email} | Password: ${cred.password}`);
       });
     } else {
       console.log('✓ Barbers already exist, skipping creation.');
@@ -236,11 +246,10 @@ mongoose.connect(process.env.MONGODB_URI)
     console.log('👨‍💼 ADMIN:');
     console.log('   Email: admin@barbershop.com');
     console.log('   Password: admin123');
-    console.log('\n💈 BARBERS (all use same password):');
-    console.log('   Email: barber1@barbershop.com');
-    console.log('   Email: barber2@barbershop.com');
-    console.log('   ... (up to barber15@barbershop.com)');
-    console.log('   Password: barber123');
+    console.log('\n💈 TEST BARBERS (Different Passwords):');
+    console.log('   1. james@barbershop.com | james123');
+    console.log('   2. ahmed@barbershop.com | ahmed123');
+    console.log('   3. sarah@barbershop.com | sarah123');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
     
     mongoose.connection.close();

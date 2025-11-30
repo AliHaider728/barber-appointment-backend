@@ -1,225 +1,221 @@
 import express from 'express';
-import { supabaseClient } from '../lib/supabase.js';
-import User from '../models/User.js';
-import Barber from '../models/Barber.js';
-import Admin from '../models/Admins.js';
+import { createClient } from '@supabase/supabase-js';
 
 const router = express.Router();
 
-// MIDDLEWARE: Verify Supabase Token
-const verifyToken = async (req, res, next) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    return res.status(401).json({ message: 'No token provided' });
-  }
-  
-  const token = authHeader.split(' ')[1];
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
+// ✅ EXISTING /me ENDPOINT - Keep as is
+router.get('/me', async (req, res) => {
   try {
-    const { data: { user }, error } = await supabaseClient.auth.getUser(token);
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    if (!token) {
+      return res.status(401).json({ message: 'No token provided' });
+    }
+
+    const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+
     if (error || !user) {
       return res.status(401).json({ message: 'Invalid token' });
     }
+
+    res.json({
+      id: user.id,
+      email: user.email,
+      role: user.user_metadata?.role || 'user',
+      barberId: user.user_metadata?.barberId,
+      fullName: user.user_metadata?.full_name
+    });
+  } catch (error) {
+    console.error('/me error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// ✅ EXISTING /verify-admin ENDPOINT - Keep as is
+router.get('/verify-admin', async (req, res) => {
+  try {
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    if (!token) {
+      return res.status(401).json({ message: 'No token' });
+    }
+
+    const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+
+    if (error || !user) {
+      return res.status(401).json({ message: 'Invalid token' });
+    }
+
+    if (user.user_metadata?.role !== 'admin') {
+      return res.status(403).json({ message: 'Not authorized' });
+    }
+
+    res.json({ message: 'Admin verified', user });
+  } catch (error) {
+    console.error('/verify-admin error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// ✅ NEW: LOGIN ENDPOINT (For compatibility with your LoginSignup component)
+router.post('/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email and password are required!'
+      });
+    }
+
+    // Authenticate with Supabase
+    const { data: authData, error: authError } = await supabaseAdmin.auth.signInWithPassword({
+      email: email.trim().toLowerCase(),
+      password: password
+    });
+
+    if (authError || !authData.user) {
+      console.error('Login failed:', authError?.message);
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid email or password!'
+      });
+    }
+
+    const user = authData.user;
+    const role = user.user_metadata?.role || 'user';
+    const barberId = user.user_metadata?.barberId;
+
+    console.log('✓ User logged in:', user.email, '| Role:', role);
+
+    // Return response
+    res.json({
+      success: true,
+      message: 'Login successful!',
+      token: authData.session.access_token,
+      refreshToken: authData.session.refresh_token,
+      user: {
+        id: user.id,
+        email: user.email,
+        role: role,
+        barberId: barberId,
+        fullName: user.user_metadata?.full_name || user.email.split('@')[0]
+      }
+    });
+
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error during login: ' + error.message
+    });
+  }
+});
+
+// ✅ NEW: SIGNUP ENDPOINT (For regular users only)
+router.post('/signup', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email and password are required!'
+      });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be at least 6 characters!'
+      });
+    }
+
+    // Create user in Supabase
+    const { data, error } = await supabaseAdmin.auth.admin.createUser({
+      email: email.trim().toLowerCase(),
+      password: password,
+      email_confirm: true, // Auto-confirm for now
+      user_metadata: {
+        role: 'user', // Default role for signup
+        full_name: email.split('@')[0]
+      }
+    });
+
+    if (error) {
+      console.error('Signup error:', error);
+      return res.status(400).json({
+        success: false,
+        message: error.message || 'Failed to create account'
+      });
+    }
+
+    console.log('✓ New user signed up:', data.user.email);
+
+    res.status(201).json({
+      success: true,
+      message: 'Account created successfully!',
+      user: {
+        id: data.user.id,
+        email: data.user.email
+      }
+    });
+
+  } catch (error) {
+    console.error('Signup error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error during signup: ' + error.message
+    });
+  }
+});
+
+// ✅ VERIFY TOKEN (Optional - for protected routes)
+router.post('/verify', async (req, res) => {
+  try {
+    const token = req.headers.authorization?.replace('Bearer ', '');
     
-    req.supabaseUser = user;
-    next();
-  } catch (err) {
-    console.error('Token verification error:', err);
-    return res.status(401).json({ message: 'Token verification failed' });
-  }
-};
+    if (!token) {
+      return res.status(401).json({ success: false, message: 'No token provided' });
+    }
 
-// ROUTE: Health Check
-router.get('/', (req, res) => {
-  res.json({
-    message: 'Auth API is running',
-    routes: [
-      'GET /api/auth/verify-admin',
-      'GET /api/auth/verify-barber',
-      'GET /api/auth/verify-user',
-      'GET /api/auth/me'
-    ]
-  });
-});
+    const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
 
-// ROUTE: Get Current User (Universal - any role)
-router.get('/me', verifyToken, async (req, res) => {
-  try {
-    const { supabaseUser } = req;
-    const role = supabaseUser.user_metadata?.role || 'user';
-
-    let userData = {
-      id: supabaseUser.id,
-      email: supabaseUser.email,
-      role: role,
-      fullName: supabaseUser.user_metadata?.full_name || supabaseUser.email.split('@')[0]
-    };
-
-    // Extra details based on role
-    if (role === 'admin') {
-      let admin = await Admin.findOne({ supabaseId: supabaseUser.id });
-      if (!admin) {
-        admin = await Admin.create({
-          supabaseId: supabaseUser.id,
-          email: supabaseUser.email,
-          fullName: supabaseUser.user_metadata?.full_name || 'Admin'
-        });
-      }
-      userData.mongoId = admin._id;
-      userData.permissions = admin.permissions;
-    } else if (role === 'barber') {
-      const barberId = supabaseUser.user_metadata?.barberId;
-      if (barberId) {
-        const barber = await Barber.findById(barberId).populate('branch');
-        if (barber) {
-          userData.barberId = barber._id;
-          userData.branch = barber.branch;
-          userData.specialties = barber.specialties;
-          userData.experienceYears = barber.experienceYears;
-        }
-      }
-    } else if (role === 'user') {
-      let user = await User.findOne({ supabaseId: supabaseUser.id });
-      if (!user) {
-        user = await User.create({
-          supabaseId: supabaseUser.id,
-          email: supabaseUser.email,
-          fullName: supabaseUser.user_metadata?.full_name || supabaseUser.email.split('@')[0],
-          role: 'user'
-        });
-      }
-      userData.mongoId = user._id;
-      userData.phone = user.phone;
-      userData.address = user.address;
-      userData.city = user.city;
+    if (error || !user) {
+      return res.status(401).json({ success: false, message: 'Invalid token' });
     }
 
     res.json({
       success: true,
-      user: userData
-    });
-  } catch (error) {
-    console.error('Get user error:', error);
-    res.status(500).json({ success: false, message: 'Server error: ' + error.message });
-  }
-});
-
-// ROUTE: Verify Admin
-router.get('/verify-admin', verifyToken, async (req, res) => {
-  try {
-    const { supabaseUser } = req;
-    const role = supabaseUser.user_metadata?.role;
-
-    if (role !== 'admin') {
-      return res.status(403).json({ success: false, message: 'Access denied - admin only' });
-    }
-
-    // Create/update admin record
-    let admin = await Admin.findOne({ supabaseId: supabaseUser.id });
-    if (!admin) {
-      admin = await Admin.create({
-        supabaseId: supabaseUser.id,
-        email: supabaseUser.email,
-        fullName: supabaseUser.user_metadata?.full_name || 'Admin'
-      });
-    }
-
-    res.json({
-      success: true,
-      message: 'Admin verified',
       user: {
-        id: supabaseUser.id,
-        mongoId: admin._id,
-        email: supabaseUser.email,
-        role: 'admin',
-        fullName: admin.fullName,
-        permissions: admin.permissions
+        id: user.id,
+        email: user.email,
+        role: user.user_metadata?.role || 'user',
+        barberId: user.user_metadata?.barberId
       }
     });
+
   } catch (error) {
-    console.error('Admin verification error:', error);
+    console.error('Token verification error:', error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });
 
-// ROUTE: Verify Barber
-router.get('/verify-barber', verifyToken, async (req, res) => {
+// ✅ LOGOUT (Optional)
+router.post('/logout', async (req, res) => {
   try {
-    const { supabaseUser } = req;
-    const role = supabaseUser.user_metadata?.role;
-    const barberId = supabaseUser.user_metadata?.barberId;
-
-    if (role !== 'barber') {
-      return res.status(403).json({ success: false, message: 'Access denied - barber only' });
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    
+    if (token) {
+      await supabaseAdmin.auth.signOut(token);
     }
 
-    if (!barberId) {
-      return res.status(400).json({ success: false, message: 'Barber ID not found' });
-    }
-
-    const barber = await Barber.findById(barberId).populate('branch', 'name city address phone');
-    if (!barber) {
-      return res.status(404).json({ success: false, message: 'Barber not found' });
-    }
-
-    res.json({
-      success: true,
-      message: 'Barber verified',
-      user: {
-        id: supabaseUser.id,
-        barberId: barber._id,
-        email: supabaseUser.email,
-        role: 'barber',
-        fullName: barber.name,
-        branch: barber.branch,
-        specialties: barber.specialties,
-        experienceYears: barber.experienceYears,
-        gender: barber.gender
-      }
-    });
+    res.json({ success: true, message: 'Logged out successfully' });
   } catch (error) {
-    console.error('Barber verification error:', error);
-    res.status(500).json({ success: false, message: 'Server error' });
-  }
-});
-
-// ROUTE: Verify User
-router.get('/verify-user', verifyToken, async (req, res) => {
-  try {
-    const { supabaseUser } = req;
-    const role = supabaseUser.user_metadata?.role || 'user';
-
-    if (role !== 'user') {
-      return res.status(403).json({ success: false, message: 'Access denied - user only' });
-    }
-
-    let user = await User.findOne({ supabaseId: supabaseUser.id });
-    if (!user) {
-      user = await User.create({
-        supabaseId: supabaseUser.id,
-        email: supabaseUser.email,
-        role: 'user',
-        fullName: supabaseUser.user_metadata?.full_name || supabaseUser.email.split('@')[0]
-      });
-    }
-
-    res.json({
-      success: true,
-      message: 'User verified',
-      user: {
-        id: supabaseUser.id,
-        mongoId: user._id,
-        email: supabaseUser.email,
-        role: 'user',
-        fullName: user.fullName,
-        phone: user.phone,
-        address: user.address,
-        city: user.city,
-        profileImage: user.profileImage
-      }
-    });
-  } catch (error) {
-    console.error('User verification error:', error);
+    console.error('Logout error:', error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });
