@@ -3,7 +3,8 @@ import mongoose from 'mongoose';
 const barberSchema = new mongoose.Schema({
   name: { 
     type: String, 
-    required: true 
+    required: true,
+    trim: true
   },
   email: { 
     type: String, 
@@ -11,6 +12,12 @@ const barberSchema = new mongoose.Schema({
     unique: true,
     lowercase: true,
     trim: true
+  },
+  userId: {
+    type: String,
+    unique: true,
+    sparse: true, // Allows null for legacy barbers
+    index: true
   },
   experienceYears: { 
     type: Number, 
@@ -33,10 +40,20 @@ const barberSchema = new mongoose.Schema({
   role: {
     type: String,
     default: 'barber'
+  },
+  stripeAccountId: {
+    type: String,
+    sparse: true // For Stripe Connect (optional for now)
+  },
+  isActive: {
+    type: Boolean,
+    default: true
   }
 }, { timestamps: true });
 
-// Index for faster email lookups
+// Indexes for faster lookups
 barberSchema.index({ email: 1 });
+barberSchema.index({ userId: 1 });
+barberSchema.index({ branch: 1 });
 
 export default mongoose.model('Barber', barberSchema);

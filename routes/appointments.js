@@ -5,45 +5,149 @@ import mongoose from 'mongoose';
 
 const router = express.Router();
 
-// CREATE APPOINTMENT (Updated with payment fields)
+//   GET all appointments (with filters)
+router.get('/', async (req, res) => {
+  try {
+    const { barber, branch, status, date } = req.query;
+    
+    let filter = {};
+    
+    if (barber && mongoose.Types.ObjectId.isValid(barber)) {
+      filter.barber = barber;
+    }
+    
+    if (branch && mongoose.Types.ObjectId.isValid(branch)) {
+      filter.branch = branch;
+    }
+    
+    if (status) {
+      filter.status = status;
+    }
+    
+    if (date) {
+      const startOfDay = new Date(date);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(date);
+      endOfDay.setHours(23, 59, 59, 999);
+      filter.date = { $gte: startOfDay, $lte: endOfDay };
+    }
+
+    const appointments = await Appointment.find(filter)
+      .populate('barber', 'name email')
+      .populate('branch', 'name city address')
+      .populate('services.serviceRef', 'name price duration')
+      .sort({ date: -1 });
+
+    res.json(appointments);
+  } catch (error) {
+    console.error('GET appointments error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+//   GET single appointment
+router.get('/:id', async (req, res) => {
+  try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: 'Invalid appointment ID' });
+    }
+
+    const appointment = await Appointment.findById(req.params.id)
+      .populate('barber', 'name email experienceYears')
+      .populate('branch', 'name city address')
+      .populate('services.serviceRef', 'name price duration');
+
+    if (!appointment) {
+      return res.status(404).json({ message: 'Appointment not found' });
+    }
+
+    res.json(appointment);
+  } catch (error) {
+    console.error('GET appointment error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+//   GET appointments by barber and date (for booking conflicts)
+router.get('/barber/:barberId/date/:date', async (req, res) => {
+  try {
+    const { barberId, date } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(barberId)) {
+      return res.status(400).json({ message: 'Invalid barber ID' });
+    }
+
+    const startOfDay = new Date(date);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(date);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const appointments = await Appointment.find({
+      barber: barberId,
+      date: { $gte: startOfDay, $lte: endOfDay },
+      status: { $ne: 'rejected' }
+    }).select('date duration status');
+
+    res.json(appointments);
+  } catch (error) {
+    console.error('GET barber appointments error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+//   CREATE appointment (pay-later)
 router.post('/', async (req, res) => {
   try {
-    const { 
-      customerName, 
-      email, 
-      phone, 
-      date, 
-      selectedServices, 
-      barber, 
-      branch, 
+    const {
+      customerName,
+      email,
+      phone,
+      date,
+      selectedServices,
+      barber,
+      branch,
       duration,
-      totalPrice,
-      payOnline = false,
-      paymentIntentId = null  
+      totalPrice
     } = req.body;
 
-    // Validate required fields
+    // Validation
     if (!customerName || !email || !phone || !date || !barber || !branch || !duration) {
-      return res.status(400).json({ message: 'All fields are required' });
+      return res.status(400).json({ 
+        success: false,
+        message: 'All fields are required' 
+      });
     }
 
     if (!selectedServices || !Array.isArray(selectedServices) || selectedServices.length === 0) {
-      return res.status(400).json({ message: 'At least one service is required' });
-    }
-    // Validate ObjectIds
-    if (!mongoose.Types.ObjectId.isValid(barber) || !mongoose.Types.ObjectId.isValid(branch)) {
-      return res.status(400).json({ message: 'Invalid barber or branch ID' });
+      return res.status(400).json({ 
+        success: false,
+        message: 'At least one service is required' 
+      });
     }
 
-    // Validate service IDs
+    // Validate ObjectIds
+    if (!mongoose.Types.ObjectId.isValid(barber) || !mongoose.Types.ObjectId.isValid(branch)) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Invalid barber or branch ID' 
+      });
+    }
+
+    // Validate services
     const serviceIds = selectedServices.map(s => s.serviceRef).filter(Boolean);
     if (serviceIds.some(id => !mongoose.Types.ObjectId.isValid(id))) {
-      return res.status(400).json({ message: 'Invalid service ID' });
+      return res.status(400).json({ 
+        success: false,
+        message: 'Invalid service ID' 
+      });
     }
 
     const services = await Service.find({ _id: { $in: serviceIds } });
     if (services.length !== serviceIds.length) {
-      return res.status(400).json({ message: 'One or more services not found' });
+      return res.status(400).json({ 
+        success: false,
+        message: 'One or more services not found' 
+      });
     }
 
     // Enrich services with full data
@@ -56,143 +160,120 @@ router.post('/', async (req, res) => {
         duration: service.duration
       };
     });
-    
 
-    // Calculate total price if not provided
-    const calculatedTotalPrice = totalPrice || enrichedServices.reduce((sum, s) => {
+    // Calculate total if not provided
+    const calculatedTotal = totalPrice || enrichedServices.reduce((sum, s) => {
       return sum + parseFloat(s.price.replace('£', '').trim());
     }, 0);
 
-    // FIX: Add basic conflict check (similar to payment route)
-    const appointmentDate = new Date(date); // Assuming UTC
-    const endDate = new Date(appointmentDate.getTime() + duration * 60000);
-    const conflictingBookings = await Appointment.find({
-      barber,
-      date: { $lt: endDate },
-      $or: [{ status: { $ne: 'rejected' } }],
-    }).where({ $expr: { $gt: [{ $add: ['$date', { $multiply: ['$duration', 60000] }] }, appointmentDate] } });
-
-    if (conflictingBookings.length > 0) {
-      return res.status(409).json({ error: 'Time slot conflict detected' });
-    }
-
-    // Create appointment with payment fields
+    // Create appointment
     const appointment = new Appointment({
       customerName: customerName.trim(),
       email: email.trim().toLowerCase(),
       phone: phone.trim(),
-      date: appointmentDate, // FIX: Ensure UTC
+      date: new Date(date),
       services: enrichedServices,
-      totalPrice: calculatedTotalPrice,
-      totalPriceInCents: Math.round(calculatedTotalPrice * 100),
-      duration,
+      totalPrice: calculatedTotal,
+      totalPriceInCents: Math.round(calculatedTotal * 100),
+      duration: duration || 30,
       barber,
       branch,
       status: 'pending',
-      payOnline,
-      paymentIntentId,
-      paymentStatus: payOnline && paymentIntentId ? 'paid' : 'pending'
+      payOnline: false,
+      paymentStatus: 'pending'
     });
-    
 
     await appointment.save();
 
-    // Return populated appointment
     const populated = await Appointment.findById(appointment._id)
-      .populate('barber', 'name')
+      .populate('barber', 'name email')
       .populate('branch', 'name city address')
       .populate('services.serviceRef', 'name price duration');
 
+    console.log('  Appointment created:', appointment._id);
     res.status(201).json(populated);
+
   } catch (error) {
-    console.error('Create appointment error:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error('  Create appointment error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Failed to create appointment',
+      error: error.message 
+    });
   }
 });
 
-// GET ALL APPOINTMENTS – POPULATED
-router.get('/', async (req, res) => {
-  try {
-    const appointments = await Appointment.find()
-      .populate('barber', 'name')
-      .populate('branch', 'name city address')
-      .populate('services.serviceRef', 'name price duration')
-      .sort({ date: -1 });
-
-    res.json(appointments);
-  } catch (error) {
-    console.error('GET all appointments error:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
-});
-
-// GET APPOINTMENTS BY BARBER & DATE (for time slots)
-router.get('/barber/:barberId/date/:date', async (req, res) => {
-  try {
-    const { barberId, date } = req.params;
-
-    if (!mongoose.Types.ObjectId.isValid(barberId)) {
-      return res.status(400).json({ message: 'Invalid barber ID' });
-    }
-
-    const start = new Date(date);
-    const end = new Date(date);
-    end.setDate(end.getDate() + 1);
-
-    const bookings = await Appointment.find({
-      barber: barberId,
-      date: { $gte: start, $lt: end },
-      status: { $ne: 'rejected' } // Don't include rejected appointments
-    }).select('date duration status');
-
-    res.json(bookings);
-  } catch (error) {
-    console.error('GET bookings by barber/date error:', error);
-    res.status(500).json({ message: 'Server error' });
-  }
-});
-
-// UPDATE STATUS (Approve / Reject)
+// UPDATE appointment status
 router.put('/:id', async (req, res) => {
   try {
-    const { status } = req.body;
+    const { id } = req.params;
+    const { status, paymentStatus } = req.body;
 
-    if (!['pending', 'confirmed', 'rejected', 'completed'].includes(status)) {
-      return res.status(400).json({ message: 'Invalid status' });
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: 'Invalid appointment ID' });
+    }
+
+    const updateData = {};
+    
+    if (status) {
+      if (!['pending', 'confirmed', 'rejected', 'completed'].includes(status)) {
+        return res.status(400).json({ message: 'Invalid status' });
+      }
+      updateData.status = status;
+    }
+
+    if (paymentStatus) {
+      if (!['pending', 'paid', 'failed', 'refunded'].includes(paymentStatus)) {
+        return res.status(400).json({ message: 'Invalid payment status' });
+      }
+      updateData.paymentStatus = paymentStatus;
     }
 
     const appointment = await Appointment.findByIdAndUpdate(
-      req.params.id,
-      { status },
-      { new: true }
+      id,
+      updateData,
+      { new: true, runValidators: true }
     )
-      .populate('barber', 'name')
-      .populate('branch', 'name city')
+      .populate('barber', 'name email')
+      .populate('branch', 'name city address')
       .populate('services.serviceRef', 'name price duration');
 
     if (!appointment) {
       return res.status(404).json({ message: 'Appointment not found' });
     }
 
+    console.log('  Appointment updated:', id);
     res.json(appointment);
+
   } catch (error) {
-    console.error('Update appointment error:', error);
-    res.status(500).json({ message: 'Server error' });
+    console.error('  Update appointment error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
 
-// DELETE APPOINTMENT
+//   DELETE appointment
 router.delete('/:id', async (req, res) => {
   try {
-    const appointment = await Appointment.findByIdAndDelete(req.params.id);
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: 'Invalid appointment ID' });
+    }
+
+    const appointment = await Appointment.findByIdAndDelete(id);
 
     if (!appointment) {
       return res.status(404).json({ message: 'Appointment not found' });
     }
 
-    res.json({ message: 'Appointment deleted successfully' });
+    console.log('  Appointment deleted:', id);
+    res.json({ 
+      success: true, 
+      message: 'Appointment deleted successfully' 
+    });
+
   } catch (error) {
-    console.error('Delete appointment error:', error);
+    console.error('  Delete appointment error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
