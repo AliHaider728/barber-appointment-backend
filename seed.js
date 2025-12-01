@@ -230,13 +230,13 @@ mongoose.connect(process.env.MONGODB_URI)
       console.log('✓ Shifts already exist, skipping creation.');
     }
 
-    console.log('\n✅ SEEDING COMPLETE!');
-    console.log('\n🔐 LOGIN CREDENTIALS:');
+    console.log('\n SEEDING COMPLETE!');
+    console.log('\n LOGIN CREDENTIALS:');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('👨‍💼 ADMIN:');
+    console.log(' ADMIN:');
     console.log('   Email: admin@barbershop.com');
     console.log('   Password: admin123');
-    console.log('\n💈 BARBERS (all use same password):');
+    console.log('\n BARBERS (all use same password):');
     console.log('   Email: barber1@barbershop.com');
     console.log('   Email: barber2@barbershop.com');
     console.log('   ... (up to barber15@barbershop.com)');
