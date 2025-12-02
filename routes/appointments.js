@@ -46,6 +46,7 @@ const requireAuth = async (req, res, next) => {
     if (!user) {
       return res.status(401).json({ error: 'User not found' });
     }
+
     
     req.user = user;
     req.token = token;
@@ -68,9 +69,9 @@ router.get('/', optionalAuth, async (req, res) => {
         { email: req.user.email },
         { userId: req.user._id }
       ];
-      console.log('🔒 Filtering appointments for user:', req.user.email);
+      console.log('   Filtering appointments for user:', req.user.email);
     } else {
-      console.log('🔓 No user filter applied (admin/barber or no auth)');
+      console.log('  No user filter applied (admin/barber or no auth)');
     }
     
     // Additional filters
