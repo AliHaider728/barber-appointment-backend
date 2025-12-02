@@ -4,6 +4,13 @@
     {
       "src": "server.js",
       "use": "@vercel/node"
+    },
+    {
+      "src": "vite.config.js",
+      "use": "@vercel/static-build",  
+      "config": {
+        "distDir": "dist"
+      }
     }
   ],
   "routes": [
@@ -14,6 +21,14 @@
     {
       "src": "/uploads/(.*)",
       "dest": "/uploads/$1"
+    },
+    {
+      "src": "/callback",
+      "dest": "/index.html"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
     }
   ]
 }
