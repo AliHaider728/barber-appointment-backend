@@ -2,16 +2,78 @@ import express from 'express';
 import Appointment from '../models/Appointment.js';
 import Service from '../models/Service.js';
 import mongoose from 'mongoose';
+import jwt from 'jsonwebtoken';
 
 const router = express.Router();
 
-//   GET all appointments (with filters)
-router.get('/', async (req, res) => {
+// AUTH MIDDLEWARE - Optional authentication
+const optionalAuth = async (req, res, next) => {
+  try {
+    const token = req.header('Authorization')?.replace('Bearer ', '');
+    
+    if (token) {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+      
+      // Dynamically import User model
+      const User = (await import('../models/User.js')).default;
+      const user = await User.findById(decoded.userId || decoded.id);
+      
+      if (user) {
+        req.user = user;
+        req.token = token;
+      }
+    }
+    next();
+  } catch (error) {
+    // If token is invalid, just continue without user
+    next();
+  }
+};
+
+// REQUIRED AUTH MIDDLEWARE
+const requireAuth = async (req, res, next) => {
+  try {
+    const token = req.header('Authorization')?.replace('Bearer ', '');
+    
+    if (!token) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+    const User = (await import('../models/User.js')).default;
+    const user = await User.findById(decoded.userId || decoded.id);
+    
+    if (!user) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+    
+    req.user = user;
+    req.token = token;
+    next();
+  } catch (error) {
+    res.status(401).json({ error: 'Invalid token' });
+  }
+};
+
+// GET all appointments (with user filtering)
+router.get('/', optionalAuth, async (req, res) => {
   try {
     const { barber, branch, status, date } = req.query;
     
     let filter = {};
     
+    // CRITICAL: If user is logged in and has 'user' role, filter by their email/userId
+    if (req.user && req.user.role === 'user') {
+      filter.$or = [
+        { email: req.user.email },
+        { userId: req.user._id }
+      ];
+      console.log('🔒 Filtering appointments for user:', req.user.email);
+    } else {
+      console.log('🔓 No user filter applied (admin/barber or no auth)');
+    }
+    
+    // Additional filters
     if (barber && mongoose.Types.ObjectId.isValid(barber)) {
       filter.barber = barber;
     }
@@ -36,17 +98,19 @@ router.get('/', async (req, res) => {
       .populate('barber', 'name email')
       .populate('branch', 'name city address')
       .populate('services.serviceRef', 'name price duration')
-      .sort({ date: -1 });
+      .sort({ date: -1, createdAt: -1 });
 
+    console.log(`  Found ${appointments.length} appointments`);
     res.json(appointments);
+    
   } catch (error) {
-    console.error('GET appointments error:', error);
+    console.error('  GET appointments error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
 
-//   GET single appointment
-router.get('/:id', async (req, res) => {
+// GET single appointment (with ownership check)
+router.get('/:id', optionalAuth, async (req, res) => {
   try {
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
       return res.status(400).json({ message: 'Invalid appointment ID' });
@@ -61,14 +125,24 @@ router.get('/:id', async (req, res) => {
       return res.status(404).json({ message: 'Appointment not found' });
     }
 
+    // Check ownership if user is logged in
+    if (req.user && req.user.role === 'user') {
+      const isOwner = appointment.email === req.user.email || 
+                      appointment.userId?.toString() === req.user._id.toString();
+      
+      if (!isOwner) {
+        return res.status(403).json({ message: 'Access denied' });
+      }
+    }
+
     res.json(appointment);
   } catch (error) {
-    console.error('GET appointment error:', error);
+    console.error('  GET appointment error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-//   GET appointments by barber and date (for booking conflicts)
+// GET appointments by barber and date (for booking conflicts)
 router.get('/barber/:barberId/date/:date', async (req, res) => {
   try {
     const { barberId, date } = req.params;
@@ -85,18 +159,18 @@ router.get('/barber/:barberId/date/:date', async (req, res) => {
     const appointments = await Appointment.find({
       barber: barberId,
       date: { $gte: startOfDay, $lte: endOfDay },
-      status: { $ne: 'rejected' }
+      status: { $nin: ['rejected', 'cancelled'] }
     }).select('date duration status');
 
     res.json(appointments);
   } catch (error) {
-    console.error('GET barber appointments error:', error);
+    console.error('  GET barber appointments error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-//   CREATE appointment (pay-later)
-router.post('/', async (req, res) => {
+// CREATE appointment - Now saves userId if provided
+router.post('/', optionalAuth, async (req, res) => {
   try {
     const {
       customerName,
@@ -166,8 +240,8 @@ router.post('/', async (req, res) => {
       return sum + parseFloat(s.price.replace('£', '').trim());
     }, 0);
 
-    // Create appointment
-    const appointment = new Appointment({
+    // Create appointment with userId if user is logged in
+    const appointmentData = {
       customerName: customerName.trim(),
       email: email.trim().toLowerCase(),
       phone: phone.trim(),
@@ -181,8 +255,15 @@ router.post('/', async (req, res) => {
       status: 'pending',
       payOnline: false,
       paymentStatus: 'pending'
-    });
+    };
 
+    // Add userId if user is authenticated
+    if (req.user) {
+      appointmentData.userId = req.user._id;
+      console.log('👤 Appointment linked to user:', req.user.email);
+    }
+
+    const appointment = new Appointment(appointmentData);
     await appointment.save();
 
     const populated = await Appointment.findById(appointment._id)
@@ -203,8 +284,8 @@ router.post('/', async (req, res) => {
   }
 });
 
-// UPDATE appointment status
-router.put('/:id', async (req, res) => {
+// UPDATE appointment status (with ownership check for users)
+router.put('/:id', optionalAuth, async (req, res) => {
   try {
     const { id } = req.params;
     const { status, paymentStatus } = req.body;
@@ -213,10 +294,26 @@ router.put('/:id', async (req, res) => {
       return res.status(400).json({ message: 'Invalid appointment ID' });
     }
 
+    // Check if appointment exists
+    const existingAppointment = await Appointment.findById(id);
+    if (!existingAppointment) {
+      return res.status(404).json({ message: 'Appointment not found' });
+    }
+
+    // Check ownership if user is logged in and has 'user' role
+    if (req.user && req.user.role === 'user') {
+      const isOwner = existingAppointment.email === req.user.email || 
+                      existingAppointment.userId?.toString() === req.user._id.toString();
+      
+      if (!isOwner) {
+        return res.status(403).json({ message: 'Access denied' });
+      }
+    }
+
     const updateData = {};
     
     if (status) {
-      if (!['pending', 'confirmed', 'rejected', 'completed'].includes(status)) {
+      if (!['pending', 'confirmed', 'rejected', 'completed', 'cancelled'].includes(status)) {
         return res.status(400).json({ message: 'Invalid status' });
       }
       updateData.status = status;
@@ -238,10 +335,6 @@ router.put('/:id', async (req, res) => {
       .populate('branch', 'name city address')
       .populate('services.serviceRef', 'name price duration');
 
-    if (!appointment) {
-      return res.status(404).json({ message: 'Appointment not found' });
-    }
-
     console.log('  Appointment updated:', id);
     res.json(appointment);
 
@@ -251,8 +344,8 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-//   DELETE appointment
-router.delete('/:id', async (req, res) => {
+// DELETE appointment (with ownership check)
+router.delete('/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -260,11 +353,23 @@ router.delete('/:id', async (req, res) => {
       return res.status(400).json({ message: 'Invalid appointment ID' });
     }
 
-    const appointment = await Appointment.findByIdAndDelete(id);
+    const appointment = await Appointment.findById(id);
 
     if (!appointment) {
       return res.status(404).json({ message: 'Appointment not found' });
     }
+
+    // Check ownership for regular users
+    if (req.user.role === 'user') {
+      const isOwner = appointment.email === req.user.email || 
+                      appointment.userId?.toString() === req.user._id.toString();
+      
+      if (!isOwner) {
+        return res.status(403).json({ message: 'Access denied' });
+      }
+    }
+
+    await Appointment.findByIdAndDelete(id);
 
     console.log('  Appointment deleted:', id);
     res.json({ 
