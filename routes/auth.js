@@ -1,3 +1,4 @@
+// Updated backend/routes/auth.js with /login and /signup routes added
 import express from 'express';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
@@ -117,6 +118,90 @@ router.post('/google', async (req, res) => {
   } catch (error) {
     console.error('Google login error:', error);
     res.status(500).json({ message: 'Server error: ' + error.message });
+  }
+});
+
+// ROUTE: Email/Password Signup (example: create new User; extend for Barber/Admin if needed)
+router.post('/signup', async (req, res) => {
+  try {
+    const { email, password, role = 'user' } = req.body; // Add more fields as needed (e.g., fullName)
+    
+    // Check if email exists in any model
+    const existingUser = await User.findOne({ email }) || await Barber.findOne({ email }) || await Admin.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ message: 'Email already exists' });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    let newUser;
+    let userId;
+
+    if (role === 'admin') {
+      newUser = await Admin.create({ email, password: hashedPassword, fullName: 'New Admin' });
+    } else if (role === 'barber') {
+      newUser = await Barber.create({ email, password: hashedPassword, name: 'New Barber' /* add branch, etc. */ });
+    } else {
+      newUser = await User.create({ email, password: hashedPassword, fullName: 'New User' });
+    }
+    
+    userId = newUser._id;
+
+    const jwtToken = jwt.sign(
+      { id: userId.toString(), email, role, fullName: newUser.fullName || newUser.name },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    res.status(201).json({
+      success: true,
+      token: jwtToken,
+      user: { id: userId, email, role, fullName: newUser.fullName || newUser.name }
+    });
+  } catch (error) {
+    console.error('Signup error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// ROUTE: Email/Password Login
+router.post('/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    // Find user in any model
+    let user = await User.findOne({ email }) || await Barber.findOne({ email }) || await Admin.findOne({ email });
+    if (!user) {
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
+    // Compare password (only if user has a password field; Google users might not)
+    if (user.password) {
+      const isMatch = await bcrypt.compare(password, user.password);
+      if (!isMatch) {
+        return res.status(401).json({ message: 'Invalid credentials' });
+      }
+    } else {
+      return res.status(400).json({ message: 'Use Google to login' });
+    }
+
+    const role = user instanceof Admin ? 'admin' : user instanceof Barber ? 'barber' : 'user';
+    const fullName = user.fullName || user.name;
+    const userId = user._id;
+
+    const jwtToken = jwt.sign(
+      { id: userId.toString(), email, role, fullName },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    res.json({
+      success: true,
+      token: jwtToken,
+      user: { id: userId, email, role, fullName }
+    });
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 

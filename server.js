@@ -1,4 +1,3 @@
-// backend/server.js
 import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
@@ -35,6 +34,13 @@ const app = express();
 
 // Passport init
 app.use(passport.initialize());
+
+// Set CSP and COOP headers
+app.use((req, res, next) => {
+  res.setHeader('Content-Security-Policy', "frame-ancestors 'self' https://accounts.google.com");
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
+  next();
+});
 
 // CORS 
 const allowedOrigins = [
