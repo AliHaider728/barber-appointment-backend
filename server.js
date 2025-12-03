@@ -67,18 +67,53 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 app.use('/uploads', express.static('uploads'));
 
-// MONGODB CONNECTION
-mongoose.set('strictQuery', false);
-mongoose.connect(process.env.MONGODB_URI)
-  .then(() => console.log('MongoDB Connected'))
-  .catch(err => console.error('MongoDB Error:', err));
+// MONGODB CONNECTION WITH CACHING FOR SERVERLESS
+let cachedDb = null;
+
+async function connectToDatabase() {
+  if (cachedDb) {
+    console.log('Using cached database connection');
+    return cachedDb;
+  }
+
+  console.log('Creating new database connection');
+  mongoose.set('strictQuery', false);
+  
+  try {
+    await mongoose.connect(process.env.MONGODB_URI, {
+      serverSelectionTimeoutMS: 5000,
+      socketTimeoutMS: 45000,
+    });
+    
+    cachedDb = mongoose.connection;
+    console.log('MongoDB Connected Successfully');
+    return cachedDb;
+  } catch (err) {
+    console.error('MongoDB Connection Error:', err);
+    throw err;
+  }
+}
+
+// Connect to DB immediately
+connectToDatabase().catch(err => {
+  console.error('Initial DB connection failed:', err);
+});
 
 // HEALTH CHECK ENDPOINT
 app.get('/', async (req, res) => {
   res.json({
     status: 'OK',
     message: 'API Running',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    routes: [
+      'GET /api/auth',
+      'POST /api/auth/login',
+      'POST /api/auth/signup',
+      'POST /api/auth/google',
+      'GET /api/barbers',
+      'GET /api/branches',
+      'GET /api/services'
+    ]
   });
 });
 
@@ -90,16 +125,24 @@ app.use('/api/barber-shifts', barberShiftRoutes);
 app.use('/api/branches', branchRoutes);
 app.use('/api/services', serviceRoutes);
 app.use('/api/payments', paymentRoute);
-app.use('/api/leaves', leaveRoutes);   
+app.use('/api/leaves', leaveRoutes);
+
 // 404 PAGE
 app.use('*', (req, res) => {
-  res.status(404).json({ error: 'Route not found' });
+  console.log('404 - Route not found:', req.originalUrl);
+  res.status(404).json({ 
+    error: 'Route not found',
+    path: req.originalUrl,
+    method: req.method
+  });
 });
+
 // GLOBAL ERROR HANDLER
 app.use((err, req, res, next) => {
   console.error('ERROR:', err);
   res.status(500).json({ error: err.message || 'Server Error' });
 });
 
-// VERCEL SERVERLESS FIX
+// VERCEL SERVERLESS EXPORT
+// This is the critical part for Vercel
 export default app;
