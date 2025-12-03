@@ -29,6 +29,7 @@ console.log('Cloudinary config loaded:', {
   key: process.env.CLOUDINARY_API_KEY?.slice(0, 6) + '...',
 });
 
+
 // EXPRESS APP
 const app = express();
 
