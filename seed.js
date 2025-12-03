@@ -1,18 +1,15 @@
+// backend/seed.js
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
+import bcrypt from 'bcryptjs';
 import Branch from './models/Branch.js';
 import Service from './models/Service.js';
 import Barber from './models/Barber.js';
 import BarberShift from './models/BarberShift.js';
-import { createClient } from '@supabase/supabase-js';   
+import Admin from './models/Admins.js';
 
 dotenv.config();
 mongoose.set('strictQuery', false);
-
-// Initialize Supabase admin client  
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 const maleNames = ['James', 'Ahmed', 'Liam', 'Omar', 'Ryan', 'Hassan', 'Zain', 'Ali'];
 const femaleNames = ['Sarah', 'Emma', 'Aisha', 'Fatima', 'Zara', 'Nadia', 'Hira'];
@@ -60,35 +57,20 @@ mongoose.connect(process.env.MONGODB_URI)
     }
     console.log(`✓ Services ready: ${allServices.length}`);
 
-    // 3. CREATE ADMIN FIRST
-    try {
-      const adminEmail = 'admin@barbershop.com';
-      const { data: existingAdmin } = await supabase.auth.admin.listUsers();
-      const adminExists = existingAdmin?.users?.some(u => u.email === adminEmail);
-
-      if (!adminExists) {
-        const { data, error } = await supabase.auth.admin.createUser({
-          email: adminEmail,
-          password: 'admin123',
-          email_confirm: true,
-          user_metadata: { 
-            role: 'admin',
-            full_name: 'Admin User'
-          }
-        });
-
-        if (error) {
-          console.error('✗ Failed to create admin:', error.message);
-        } else {
-          console.log('✓ Admin created successfully!');
-          console.log('📧 Admin Email: admin@barbershop.com');
-          console.log('🔑 Admin Password: admin123');
-        }
-      } else {
-        console.log('✓ Admin already exists');
-      }
-    } catch (err) {
-      console.error('✗ Admin creation error:', err.message);
+    // 3. CREATE ADMIN
+    const adminEmail = 'admin@barbershop.com';
+    const adminPassword = 'admin123';
+    let admin = await Admin.findOne({ email: adminEmail });
+    if (!admin) {
+      const hashedPassword = await bcrypt.hash(adminPassword, 10);
+      admin = await Admin.create({
+        email: adminEmail,
+        password: hashedPassword,
+        fullName: 'Admin User'
+      });
+      console.log('✓ Admin created in MongoDB');
+    } else {
+      console.log('✓ Admin already exists');
     }
 
     // 4. BARBERS
@@ -111,15 +93,15 @@ mongoose.connect(process.env.MONGODB_URI)
 
           const barberName = `${maleNames[(i + branches.indexOf(branch)) % maleNames.length]} ${branch.city}`;
           
-          // FIXED: Use simple sequential emails
+          const hashedPassword = await bcrypt.hash('barber123', 10);
           const barberData = {
             name: barberName,
             experienceYears: 3 + i + Math.floor(Math.random() * 3),
             gender: 'male',
             specialties,
             branch: branch._id,
-            email: `barber${barberCounter}@barbershop.com`, // CHANGED
-            password: 'barber123' // CHANGED - Same password for all
+            email: `barber${barberCounter}@barbershop.com`,
+            password: hashedPassword
           };
 
           allBarbers.push(barberData);
@@ -135,15 +117,15 @@ mongoose.connect(process.env.MONGODB_URI)
 
           const barberName = `${femaleNames[(i + branches.indexOf(branch)) % femaleNames.length]} ${branch.city}`;
           
-          // FIXED: Use simple sequential emails
+          const hashedPassword = await bcrypt.hash('barber123', 10);
           const barberData = {
             name: barberName,
             experienceYears: 2 + i + Math.floor(Math.random() * 4),
             gender: 'female',
             specialties,
             branch: branch._id,
-            email: `barber${barberCounter}@barbershop.com`, // CHANGED
-            password: 'barber123' // CHANGED
+            email: `barber${barberCounter}@barbershop.com`,
+            password: hashedPassword
           };
 
           allBarbers.push(barberData);
@@ -154,35 +136,6 @@ mongoose.connect(process.env.MONGODB_URI)
       // Create barbers in MongoDB
       const createdBarbers = await Barber.insertMany(allBarbers);
       console.log(`✓ Barbers created in MongoDB: ${createdBarbers.length}`);
-
-      // Create Supabase users with BARBER role
-      for (const barber of createdBarbers) {
-        try {
-          const { data, error } = await supabase.auth.admin.createUser({
-            email: barber.email,
-            password: barber.password,
-            email_confirm: true, // Auto-confirm email
-            user_metadata: { 
-              role: 'barber',
-              barberId: barber._id.toString(),
-              full_name: barber.name
-            }
-          });
-
-          if (error) {
-            console.error(`✗ Failed to create Supabase user for ${barber.name}:`, error.message);
-          } else {
-            console.log(`✓ Supabase barber user created: ${barber.email}`);
-          }
-        } catch (err) {
-          console.error(`✗ Error creating user ${barber.email}:`, err.message);
-        }
-      }
-
-      console.log('\n📋 BARBER CREDENTIALS (All use password: barber123):');
-      createdBarbers.forEach((b, idx) => {
-        console.log(`${idx + 1}. Email: ${b.email} | Name: ${b.name}`);
-      });
     } else {
       console.log('✓ Barbers already exist, skipping creation.');
     }

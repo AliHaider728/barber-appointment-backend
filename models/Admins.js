@@ -1,17 +1,17 @@
+// backend/models/Admins.js
 import mongoose from 'mongoose';
 
 const adminSchema = new mongoose.Schema({
-  supabaseId: { 
-    type: String, 
-    unique: true, 
-    required: true 
-  },
   email: { 
     type: String, 
     unique: true, 
     required: true,
     lowercase: true,
     trim: true
+  },
+  password: {
+    type: String,
+    required: true
   },
   fullName: { 
     type: String,
@@ -28,7 +28,6 @@ const adminSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 // Index for faster lookups
-adminSchema.index({ supabaseId: 1 });
 adminSchema.index({ email: 1 });
 
 export default mongoose.model('Admin', adminSchema);

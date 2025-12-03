@@ -1,3 +1,4 @@
+// backend/models/Barber.js
 import mongoose from 'mongoose';
 
 const barberSchema = new mongoose.Schema({
@@ -13,11 +14,9 @@ const barberSchema = new mongoose.Schema({
     lowercase: true,
     trim: true
   },
-  userId: {
+  password: {
     type: String,
-    unique: true,
-    sparse: true, // Allows null for legacy barbers
-    index: true
+    required: true
   },
   experienceYears: { 
     type: Number, 
@@ -53,7 +52,6 @@ const barberSchema = new mongoose.Schema({
 
 // Indexes for faster lookups
 barberSchema.index({ email: 1 });
-barberSchema.index({ userId: 1 });
 barberSchema.index({ branch: 1 });
 
 export default mongoose.model('Barber', barberSchema);

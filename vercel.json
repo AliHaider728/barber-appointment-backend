@@ -23,12 +23,22 @@
       "dest": "/uploads/$1"
     },
     {
-      "src": "/(.*)",
-      "dest": "/dist/$1"
+      "handle": "filesystem"
     },
     {
       "src": "/(.*)",
-      "dest": "/dist/index.html"
+      "dest": "/index.html"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Cross-Origin-Opener-Policy",
+          "value": "same-origin-allow-popups"
+        }
+      ]
     }
   ]
 }

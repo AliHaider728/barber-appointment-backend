@@ -1,9 +1,10 @@
+// backend/server.js
 import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { createClient } from '@supabase/supabase-js';
 import { v2 as cloudinary } from 'cloudinary';
+import passport from 'passport';
 
 // ROUTES
 import authRoutes from './routes/auth.js';
@@ -16,11 +17,6 @@ import paymentRoute from './routes/payments.js';
 import leaveRoutes from './routes/leaves.js'; 
 
 dotenv.config();
-
-// SUPABASE
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-export const supabaseClient = createClient(supabaseUrl, supabaseServiceKey);
 
 // CLOUDINARY
 cloudinary.config({
@@ -37,7 +33,10 @@ console.log('Cloudinary config loaded:', {
 // EXPRESS APP
 const app = express();
 
-//CORS 
+// Passport init
+app.use(passport.initialize());
+
+// CORS 
 const allowedOrigins = [
   'http://localhost:5173',
   'https://barber-appointment-six.vercel.app',
@@ -70,21 +69,11 @@ mongoose.connect(process.env.MONGODB_URI)
 
 // HEALTH CHECK ENDPOINT
 app.get('/', async (req, res) => {
-  try {
-    await supabaseClient.auth.getSession(); 
-    res.json({
-      status: 'OK',
-      message: 'API Running',
-      supabase: 'Connected',
-      timestamp: new Date().toISOString()
-    });
-  } catch (err) {
-    res.json({
-      status: 'OK',
-      message: 'API Running (Supabase error: ' + err.message + ')',
-      timestamp: new Date().toISOString()
-    });
-  }
+  res.json({
+    status: 'OK',
+    message: 'API Running',
+    timestamp: new Date().toISOString()
+  });
 });
 
 // ROUTES 
@@ -106,8 +95,5 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: err.message || 'Server Error' });
 });
 
-//   VERCEL SERVERLESS FIX
+// VERCEL SERVERLESS FIX
 export default app;
-
-console.log('SUPABASE_URL from env:', process.env.SUPABASE_URL);
-console.log('SUPABASE_SERVICE_ROLE_KEY:', process.env.SUPABASE_SERVICE_ROLE_KEY ? 'Set' : 'Not Set');

@@ -1,7 +1,8 @@
+// backend/models/User.js
 import mongoose from 'mongoose';
 
 const userSchema = new mongoose.Schema({
-  supabaseId: { 
+  googleId: { 
     type: String, 
     unique: true, 
     sparse: true,  // Allow null values (legacy support)
@@ -42,7 +43,7 @@ const userSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 // Index for faster lookups
-userSchema.index({ supabaseId: 1 });
+userSchema.index({ googleId: 1 });
 userSchema.index({ email: 1 });
 
 export default mongoose.model('User', userSchema);
