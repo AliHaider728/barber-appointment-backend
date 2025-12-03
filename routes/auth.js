@@ -1,4 +1,4 @@
-// Updated backend/routes/auth.js with /login and /signup routes added
+// Fixed backend/routes/auth.js
 import express from 'express';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
@@ -35,6 +35,8 @@ router.get('/', (req, res) => {
   res.json({
     message: 'Auth API is running',
     routes: [
+      'POST /api/auth/login',
+      'POST /api/auth/signup', 
       'POST /api/auth/google',
       'GET /api/auth/me',
       'GET /api/auth/verify-admin',
@@ -44,51 +46,73 @@ router.get('/', (req, res) => {
   });
 });
 
-// ROUTE: Google OAuth Login
-router.post('/google', async (req, res) => {
+// HELPER: Determine user role and get user data
+const getUserWithRole = async (email) => {
+  // Check Admin first
+  let user = await Admin.findOne({ email });
+  if (user) {
+    return { 
+      user, 
+      role: 'admin', 
+      fullName: user.fullName,
+      userId: user._id 
+    };
+  }
+
+  // Check Barber
+  user = await Barber.findOne({ email }).populate('branch');
+  if (user) {
+    return { 
+      user, 
+      role: 'barber', 
+      fullName: user.name,
+      userId: user._id,
+      barberId: user._id
+    };
+  }
+
+  // Check User
+  user = await User.findOne({ email });
+  if (user) {
+    return { 
+      user, 
+      role: 'user', 
+      fullName: user.fullName,
+      userId: user._id 
+    };
+  }
+
+  return null;
+};
+
+// ROUTE: Email/Password Login
+router.post('/login', async (req, res) => {
   try {
-    const { token } = req.body;
+    const { email, password } = req.body;
 
-    // Verify Google token
-    const response = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${token}`);
-    const googleUser = await response.json();
+    console.log('Login attempt:', { email });
 
-    if (googleUser.error) {
-      return res.status(401).json({ message: 'Invalid Google token' });
+    if (!email || !password) {
+      return res.status(400).json({ message: 'Email and password required' });
     }
 
-    const { email, name, picture } = googleUser;
+    // Get user with role
+    const userData = await getUserWithRole(email);
+    
+    if (!userData) {
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
 
-    // Check if user exists
-    let user = await User.findOne({ email });
-    let role = 'user';
-    let userId = null;
+    const { user, role, fullName, userId, barberId } = userData;
 
-    if (!user) {
-      // Check if barber
-      const barber = await Barber.findOne({ email });
-      if (barber) {
-        role = 'barber';
-        userId = barber._id;
-      } else {
-        // Check if admin
-        const admin = await Admin.findOne({ email });
-        if (admin) {
-          role = 'admin';
-          userId = admin._id;
-        } else {
-          // Create new user
-          user = await User.create({
-            email,
-            fullName: name,
-            profileImage: picture,
-            role: 'user'
-          });
-          userId = user._id;
-        }
-      }
-    } else {
-      userId = user._id;
+    // Verify password
+    if (!user.password) {
+      return res.status(400).json({ message: 'This account uses Google Sign-In. Please use Google to login.' });
+    }
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(401).json({ message: 'Invalid credentials' });
     }
 
     // Generate JWT
@@ -97,111 +121,174 @@ router.post('/google', async (req, res) => {
         id: userId.toString(), 
         email, 
         role,
-        fullName: name 
+        fullName,
+        ...(barberId && { barberId: barberId.toString() })
       },
       JWT_SECRET,
       { expiresIn: '7d' }
     );
 
+    console.log('Login successful:', { email, role });
+
+    // Send response matching frontend expectations
     res.json({
-      success: true,
       token: jwtToken,
       user: {
         id: userId,
         email,
-        role,
-        fullName: name,
-        profileImage: picture
-      }
+        fullName,
+        ...(barberId && { barberId })
+      },
+      role
     });
 
   } catch (error) {
-    console.error('Google login error:', error);
+    console.error('Login error:', error);
     res.status(500).json({ message: 'Server error: ' + error.message });
   }
 });
 
-// ROUTE: Email/Password Signup (example: create new User; extend for Barber/Admin if needed)
+// ROUTE: Email/Password Signup
 router.post('/signup', async (req, res) => {
   try {
-    const { email, password, role = 'user' } = req.body; // Add more fields as needed (e.g., fullName)
-    
-    // Check if email exists in any model
-    const existingUser = await User.findOne({ email }) || await Barber.findOne({ email }) || await Admin.findOne({ email });
-    if (existingUser) {
-      return res.status(400).json({ message: 'Email already exists' });
+    const { email, password, fullName = 'New User' } = req.body;
+
+    console.log('Signup attempt:', { email, fullName });
+
+    if (!email || !password) {
+      return res.status(400).json({ message: 'Email and password required' });
     }
 
+    // Check if email already exists
+    const existing = await getUserWithRole(email);
+    if (existing) {
+      return res.status(400).json({ message: 'Email already registered' });
+    }
+
+    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
-    let newUser;
-    let userId;
 
-    if (role === 'admin') {
-      newUser = await Admin.create({ email, password: hashedPassword, fullName: 'New Admin' });
-    } else if (role === 'barber') {
-      newUser = await Barber.create({ email, password: hashedPassword, name: 'New Barber' /* add branch, etc. */ });
-    } else {
-      newUser = await User.create({ email, password: hashedPassword, fullName: 'New User' });
-    }
-    
-    userId = newUser._id;
+    // Create new user
+    const newUser = await User.create({ 
+      email, 
+      password: hashedPassword, 
+      fullName,
+      role: 'user'
+    });
 
+    console.log('User created:', { email, id: newUser._id });
+
+    // Generate JWT
     const jwtToken = jwt.sign(
-      { id: userId.toString(), email, role, fullName: newUser.fullName || newUser.name },
+      { 
+        id: newUser._id.toString(), 
+        email, 
+        role: 'user',
+        fullName
+      },
       JWT_SECRET,
       { expiresIn: '7d' }
     );
 
     res.status(201).json({
-      success: true,
+      message: 'Account created successfully',
       token: jwtToken,
-      user: { id: userId, email, role, fullName: newUser.fullName || newUser.name }
+      user: { 
+        id: newUser._id, 
+        email, 
+        fullName 
+      },
+      role: 'user'
     });
+
   } catch (error) {
     console.error('Signup error:', error);
-    res.status(500).json({ message: 'Server error' });
+    res.status(500).json({ message: 'Server error: ' + error.message });
   }
 });
 
-// ROUTE: Email/Password Login
-router.post('/login', async (req, res) => {
+// ROUTE: Google OAuth Login
+router.post('/google', async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { token } = req.body;
 
-    // Find user in any model
-    let user = await User.findOne({ email }) || await Barber.findOne({ email }) || await Admin.findOne({ email });
-    if (!user) {
-      return res.status(401).json({ message: 'Invalid credentials' });
+    if (!token) {
+      return res.status(400).json({ message: 'Google token required' });
     }
 
-    // Compare password (only if user has a password field; Google users might not)
-    if (user.password) {
-      const isMatch = await bcrypt.compare(password, user.password);
-      if (!isMatch) {
-        return res.status(401).json({ message: 'Invalid credentials' });
-      }
-    } else {
-      return res.status(400).json({ message: 'Use Google to login' });
+    console.log('Google OAuth attempt');
+
+    // Verify Google token
+    const response = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${token}`);
+    
+    if (!response.ok) {
+      return res.status(401).json({ message: 'Invalid Google token' });
     }
 
-    const role = user instanceof Admin ? 'admin' : user instanceof Barber ? 'barber' : 'user';
-    const fullName = user.fullName || user.name;
-    const userId = user._id;
+    const googleUser = await response.json();
 
+    if (googleUser.error) {
+      return res.status(401).json({ message: 'Invalid Google token' });
+    }
+
+    const { email, name, picture } = googleUser;
+
+    console.log('Google user verified:', { email, name });
+
+    // Check if user exists
+    let userData = await getUserWithRole(email);
+    
+    if (!userData) {
+      // Create new user
+      console.log('Creating new user from Google:', email);
+      
+      const newUser = await User.create({
+        email,
+        fullName: name,
+        profileImage: picture,
+        role: 'user'
+      });
+
+      userData = {
+        user: newUser,
+        role: 'user',
+        fullName: name,
+        userId: newUser._id
+      };
+    }
+
+    const { role, fullName, userId, barberId } = userData;
+
+    // Generate JWT
     const jwtToken = jwt.sign(
-      { id: userId.toString(), email, role, fullName },
+      { 
+        id: userId.toString(), 
+        email, 
+        role,
+        fullName,
+        ...(barberId && { barberId: barberId.toString() })
+      },
       JWT_SECRET,
       { expiresIn: '7d' }
     );
 
+    console.log('Google login successful:', { email, role });
+
     res.json({
-      success: true,
       token: jwtToken,
-      user: { id: userId, email, role, fullName }
+      user: {
+        id: userId,
+        email,
+        fullName,
+        profileImage: picture,
+        ...(barberId && { barberId })
+      },
+      role
     });
+
   } catch (error) {
-    console.error('Login error:', error);
-    res.status(500).json({ message: 'Server error' });
+    console.error('Google login error:', error);
+    res.status(500).json({ message: 'Server error: ' + error.message });
   }
 });
 
@@ -229,6 +316,7 @@ router.get('/me', verifyToken, async (req, res) => {
         userData.branch = barber.branch;
         userData.specialties = barber.specialties;
         userData.experienceYears = barber.experienceYears;
+        userData.gender = barber.gender;
       }
     } else if (role === 'user') {
       const user = await User.findById(id);
