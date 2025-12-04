@@ -29,7 +29,6 @@ console.log('Cloudinary config loaded:', {
   key: process.env.CLOUDINARY_API_KEY?.slice(0, 6) + '...',
 });
 
-
 // EXPRESS APP
 const app = express();
 
@@ -68,13 +67,13 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 app.use('/uploads', express.static('uploads'));
 
-// MONGODB CONNECTION WITH CACHING FOR SERVERLESS
-let cachedDb = null;
+// MONGODB CONNECTION - FIXED FOR SERVERLESS
+let isConnected = false;
 
 async function connectToDatabase() {
-  if (cachedDb) {
-    console.log('Using cached database connection');
-    return cachedDb;
+  if (isConnected && mongoose.connection.readyState === 1) {
+    console.log('Using existing database connection');
+    return mongoose.connection;
   }
 
   console.log('Creating new database connection');
@@ -84,20 +83,29 @@ async function connectToDatabase() {
     await mongoose.connect(process.env.MONGODB_URI, {
       serverSelectionTimeoutMS: 5000,
       socketTimeoutMS: 45000,
+      maxPoolSize: 1,  // Critical for serverless
+      minPoolSize: 0,
     });
     
-    cachedDb = mongoose.connection;
+    isConnected = true;
     console.log('MongoDB Connected Successfully');
-    return cachedDb;
+    return mongoose.connection;
   } catch (err) {
     console.error('MongoDB Connection Error:', err);
+    isConnected = false;
     throw err;
   }
 }
 
-// Connect to DB immediately
-connectToDatabase().catch(err => {
-  console.error('Initial DB connection failed:', err);
+// DATABASE CONNECTION MIDDLEWARE
+app.use(async (req, res, next) => {
+  try {
+    await connectToDatabase();
+    next();
+  } catch (error) {
+    console.error('DB connection failed:', error);
+    res.status(500).json({ error: 'Database connection failed' });
+  }
 });
 
 // HEALTH CHECK ENDPOINT
@@ -106,6 +114,7 @@ app.get('/', async (req, res) => {
     status: 'OK',
     message: 'API Running',
     timestamp: new Date().toISOString(),
+    dbStatus: mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected',
     routes: [
       'GET /api/auth',
       'POST /api/auth/login',
@@ -145,5 +154,4 @@ app.use((err, req, res, next) => {
 });
 
 // VERCEL SERVERLESS EXPORT
-// This is the critical part for Vercel
 export default app;
