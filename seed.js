@@ -181,6 +181,7 @@ mongoose.connect(process.env.MONGODB_URI)
     } else {
       console.log('✓ Shifts already exist, skipping creation.');
     }
+    
 
     console.log('\n SEEDING COMPLETE!');
     console.log('\n LOGIN CREDENTIALS:');
