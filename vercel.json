@@ -9,7 +9,10 @@
   "routes": [
     {
       "src": "/(.*)",
-      "dest": "/server.js"
+      "dest": "/server.js",
+      "headers": {
+        "Cross-Origin-Opener-Policy": "same-origin-allow-popups"
+      }
     }
   ]
 }
