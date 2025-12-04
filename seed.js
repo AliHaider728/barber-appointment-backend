@@ -15,7 +15,7 @@ const femaleNames = ['Sarah', 'Emma', 'Aisha', 'Fatima', 'Zara', 'Nadia', 'Hira'
 
 mongoose.connect(process.env.MONGODB_URI)
   .then(async () => {
-    console.log('Starting Smart Seeding...');
+    console.log(' Starting Smart Seeding...');
 
     // 1. BRANCHES
     const branchData = [
@@ -30,7 +30,7 @@ mongoose.connect(process.env.MONGODB_URI)
       if (!branch) branch = await Branch.create(b);
       branches.push(branch);
     }
-    console.log(`✓ Branches ready: ${branches.length}`);
+    console.log(`  Branches ready: ${branches.length}`);
 
     // 2. SERVICES
     const serviceData = [
@@ -54,28 +54,35 @@ mongoose.connect(process.env.MONGODB_URI)
       if (!service) service = await Service.create(s);
       allServices.push(service);
     }
-    console.log(`✓ Services ready: ${allServices.length}`);
+    console.log(`  Services ready: ${allServices.length}`);
 
-    // 3. CREATE ADMIN
+    // 3. CREATE/UPDATE ADMIN WITH PASSWORD
     const adminEmail = 'admin@barbershop.com';
     const adminPassword = 'admin123';
+    const hashedPassword = await bcrypt.hash(adminPassword, 10);
+    
     let admin = await Admin.findOne({ email: adminEmail });
+    
     if (!admin) {
-      const hashedPassword = await bcrypt.hash(adminPassword, 10);
+      // Create new admin
       admin = await Admin.create({
         email: adminEmail,
         password: hashedPassword,
         fullName: 'Admin User'
       });
-      console.log('✓ Admin created in MongoDB');
+      console.log('  Admin created with password');
     } else {
-      console.log('✓ Admin already exists');
+      // Update existing admin - FORCE password update
+      admin.password = hashedPassword;
+      admin.fullName = 'Admin User'; // Ensure fullName exists
+      await admin.save();
+      console.log('  Admin password UPDATED (overriding any Google auth)');
     }
 
     // 4. BARBERS
     const existingBarbers = await Barber.countDocuments();
     if (existingBarbers === 0) {
-      console.log('Creating new barbers...');
+      console.log('📝 Creating new barbers...');
       const allBarbers = [];
       let barberCounter = 1;
 
@@ -134,15 +141,28 @@ mongoose.connect(process.env.MONGODB_URI)
 
       // Create barbers in MongoDB
       const createdBarbers = await Barber.insertMany(allBarbers);
-      console.log(`✓ Barbers created in MongoDB: ${createdBarbers.length}`);
+      console.log(`  Barbers created in MongoDB: ${createdBarbers.length}`);
     } else {
-      console.log('✓ Barbers already exist, skipping creation.');
+      console.log('  Barbers already exist, skipping creation.');
+      
+      // OPTIONAL: Update existing barbers' passwords
+      console.log('  Updating existing barbers passwords...');
+      const barbers = await Barber.find();
+      const hashedBarberPassword = await bcrypt.hash('barber123', 10);
+      
+      for (const barber of barbers) {
+        if (!barber.password) {
+          barber.password = hashedBarberPassword;
+          await barber.save();
+          console.log(`    Password set for: ${barber.email}`);
+        }
+      }
     }
 
     // 5. SHIFTS
     const existingShifts = await BarberShift.countDocuments();
     if (existingShifts === 0) {
-      console.log('Creating new shifts...');
+      console.log(' Creating new shifts...');
       const barbers = await Barber.find();
       const shifts = [];
 
@@ -177,27 +197,31 @@ mongoose.connect(process.env.MONGODB_URI)
       }
 
       await BarberShift.insertMany(shifts);
-      console.log(`✓ Shifts created: ${shifts.length}`);
+      console.log(`  Shifts created: ${shifts.length}`);
     } else {
-      console.log('✓ Shifts already exist, skipping creation.');
+      console.log('  Shifts already exist, skipping creation.');
     }
-
-    console.log('\n SEEDING COMPLETE!');
-    console.log('\n LOGIN CREDENTIALS:');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log(' ADMIN:');
-    console.log('   Email: admin@barbershop.com');
+    
+    console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('  SEEDING COMPLETE!');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+    console.log('  LOGIN CREDENTIALS:\n');
+    console.log('  ADMIN:');
+    console.log('   Email:    admin@barbershop.com');
     console.log('   Password: admin123');
-    console.log('\n BARBERS (all use same password):');
-    console.log('   Email: barber1@barbershop.com');
-    console.log('   Email: barber2@barbershop.com');
-    console.log('   ... (up to barber15@barbershop.com)');
+    console.log('     Can login with Email/Password OR Google\n');
+    console.log('  BARBERS (all use same password):');
+    console.log('   Email:    barber1@barbershop.com');
+    console.log('   Email:    barber2@barbershop.com');
+    console.log('   Email:    barber3@barbershop.com');
+    console.log('   ...       (up to barber15@barbershop.com)');
     console.log('   Password: barber123');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+    console.log('     Can login with Email/Password\n');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
     
     mongoose.connection.close();
   })
   .catch(err => {
-    console.error('Seed failed:', err.message);
+    console.error(' Seed failed:', err.message);
     process.exit(1);
   });
