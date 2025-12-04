@@ -5,7 +5,7 @@ const userSchema = new mongoose.Schema({
   googleId: { 
     type: String, 
     unique: true, 
-    sparse: true,  // Allow null values (legacy support)
+    sparse: true,  // Allow null values for non-Google users
     required: false
   },
   email: { 
@@ -14,6 +14,13 @@ const userSchema = new mongoose.Schema({
     required: true,
     lowercase: true,
     trim: true
+  },
+  password: {
+    type: String,
+    required: function() {
+      // Password required only if NOT Google sign-in
+      return !this.googleId;
+    }
   },
   fullName: { 
     type: String,
@@ -25,7 +32,7 @@ const userSchema = new mongoose.Schema({
   },
   role: { 
     type: String, 
-    enum: ['user'],  // Only 'user' for this model
+    enum: ['user'],
     default: 'user' 
   },
   profileImage: {
