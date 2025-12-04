@@ -9,7 +9,7 @@ import Admin from '../models/Admins.js';
 const router = express.Router();
 
 // JWT Secret
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-here';
+const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey123456789';
 
 // MIDDLEWARE: Verify JWT Token
 const verifyToken = async (req, res, next) => {
