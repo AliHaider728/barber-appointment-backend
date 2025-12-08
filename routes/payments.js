@@ -3,19 +3,19 @@ import Appointment from '../models/Appointment.js';
 import Service from '../models/Service.js'; 
 import mongoose from 'mongoose'; 
 import dotenv from 'dotenv';
-
+import jwt from 'jsonwebtoken';
 
 dotenv.config();
 const router = express.Router();
 
-// Safe Stripe initialization — ye line crash nahi karegi chahe key na ho
+// Safe Stripe initialization
 let stripe = null;
 
 if (process.env.STRIPE_SECRET_KEY) {
   try {
     const { Stripe } = await import('stripe');
     stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-      apiVersion: '2023-10-16', // latest stable
+      apiVersion: '2023-10-16',
     });
     console.log('Stripe initialized successfully');
   } catch (err) {
@@ -25,7 +25,7 @@ if (process.env.STRIPE_SECRET_KEY) {
   console.log('STRIPE_SECRET_KEY not found — payments disabled (safe mode)');
 }
 
-//  NEW: Middleware to verify barber token  
+// Middleware to verify barber token
 const verifyBarber = (req, res, next) => {
   try {
     const token = req.headers.authorization?.split(' ')[1];
@@ -47,7 +47,7 @@ const verifyBarber = (req, res, next) => {
   }
 };
 
-//  NEW: GET bookings for logged-in barber (for dashboard - to calculate paid/unpaid)
+// GET bookings for logged-in barber
 router.get('/barber/me/bookings', verifyBarber, async (req, res) => {
   try {
     const barberId = req.barber.id;
@@ -143,7 +143,7 @@ router.post('/create-appointment-with-payment', async (req, res) => {
       return res.status(400).json({ message: 'One or more services not found' });
     }
 
-    // Enrich services with full data (FIX: Added this to match pay-later route and satisfy schema)
+    // Enrich services with full data
     const enrichedServices = selectedServices.map(sel => {
       const service = services.find(s => s._id.toString() === sel.serviceRef);
       return {
@@ -154,12 +154,12 @@ router.post('/create-appointment-with-payment', async (req, res) => {
       };
     });
 
-    // Calculate total price if not provided (FIX: Added for consistency)
+    // Calculate total price if not provided
     const calculatedTotalPrice = totalPrice || enrichedServices.reduce((sum, s) => {
       return sum + parseFloat(s.price.replace('£', '').trim());
     }, 0);
 
-    // Agar payOnline true hai aur paymentIntentId hai → verify karo
+    // Verify payment if payOnline
     if (payOnline && paymentIntentId && stripe) {
       try {
         const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
@@ -170,31 +170,50 @@ router.post('/create-appointment-with-payment', async (req, res) => {
         return res.status(400).json({ error: 'Invalid payment intent' });
       }
     } else if (payOnline && !stripe) {
-      // FIX: Fail if payOnline but no Stripe to prevent unverified 'paid' bookings
       return res.status(400).json({ error: 'Payment system not available for online payments' });
     }
 
-    // FIX: Add basic conflict check (query existing bookings for overlap)
-    const appointmentDate = new Date(date); // Assuming UTC for consistency
-    const endDate = new Date(appointmentDate.getTime() + duration * 60000); // duration in minutes
+    // IMPROVED CONFLICT CHECK
+    const appointmentDate = new Date(date);
+    const endDate = new Date(appointmentDate.getTime() + duration * 60000);
+
     const conflictingBookings = await Appointment.find({
       barber,
-      date: { $lt: endDate },
-      $or: [{ status: { $ne: 'rejected' } }],
-      // Simple overlap check: existing end > new start AND existing start < new end
-      // Note: For full accuracy, store endDate or use more precise logic
-    }).where({ $expr: { $gt: [{ $add: ['$date', { $multiply: ['$duration', 60000] }] }, appointmentDate] } });
+      status: { $nin: ['rejected', 'cancelled'] },
+      $or: [
+        // Case 1: Existing booking starts before and ends after new booking starts
+        {
+          date: { $lte: appointmentDate },
+          $expr: {
+            $gte: [
+              { $add: ['$date', { $multiply: ['$duration', 60000] }] },
+              appointmentDate
+            ]
+          }
+        },
+        // Case 2: Existing booking starts during the new booking
+        {
+          date: {
+            $gte: appointmentDate,
+            $lt: endDate
+          }
+        }
+      ]
+    });
 
     if (conflictingBookings.length > 0) {
-      return res.status(409).json({ error: 'Time slot conflict detected' });
+      return res.status(409).json({ 
+        error: 'Time slot conflict detected',
+        message: 'This time slot is no longer available. Please select another time.'
+      });
     }
     
-    // Appointment banao
+    // Create appointment
     const appointment = new Appointment({
       customerName: customerName?.trim() || 'Guest',
       email: email?.trim().toLowerCase() || 'no-email@temp.com',
       phone: phone?.trim() || 'N/A',
-      date: appointmentDate, // FIX: Ensure UTC consistency
+      date: appointmentDate,
       services: enrichedServices,
       totalPrice: calculatedTotalPrice,
       totalPriceInCents: Math.round(calculatedTotalPrice * 100),
@@ -234,4 +253,4 @@ router.get('/', (req, res) => {
   });
 });
 
-export default router; 
+export default router;

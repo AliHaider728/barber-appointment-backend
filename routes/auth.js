@@ -105,9 +105,18 @@ router.post('/login', async (req, res) => {
 
     const { user, role, fullName, userId, barberId } = userData;
 
+    // FIXED: Check if this is a Google-only account
+    if (role === 'user' && user.googleId && !user.password) {
+      return res.status(400).json({ 
+        message: 'This account uses Google Sign-In. Please use Google to login.' 
+      });
+    }
+
     // Verify password
     if (!user.password) {
-      return res.status(400).json({ message: 'This account uses Google Sign-In. Please use Google to login.' });
+      return res.status(400).json({ 
+        message: 'Password not set. Please use Google Sign-In or reset your password.' 
+      });
     }
 
     const isMatch = await bcrypt.compare(password, user.password);
@@ -168,12 +177,13 @@ router.post('/signup', async (req, res) => {
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Create new user
+    // FIXED: Create new user WITHOUT googleId (manual signup)
     const newUser = await User.create({ 
       email, 
       password: hashedPassword, 
       fullName,
       role: 'user'
+      // No googleId field - this is manual signup
     });
 
     console.log('User created:', { email, id: newUser._id });
@@ -231,7 +241,7 @@ router.post('/google', async (req, res) => {
       return res.status(401).json({ message: 'Invalid Google token' });
     }
 
-    const { email, name, picture } = googleUser;
+    const { email, name, picture, sub: googleId } = googleUser;
 
     console.log('Google user verified:', { email, name });
 
@@ -239,14 +249,16 @@ router.post('/google', async (req, res) => {
     let userData = await getUserWithRole(email);
     
     if (!userData) {
-      // Create new user
+      // FIXED: Create new Google user with googleId
       console.log('Creating new user from Google:', email);
       
       const newUser = await User.create({
         email,
+        googleId: googleId, // Store Google ID
         fullName: name,
         profileImage: picture,
         role: 'user'
+        // No password field for Google users
       });
 
       userData = {
@@ -255,6 +267,13 @@ router.post('/google', async (req, res) => {
         fullName: name,
         userId: newUser._id
       };
+    } else if (userData.role === 'user' && !userData.user.googleId) {
+      // FIXED: If user exists but without googleId, link Google account
+      console.log('Linking Google account to existing user:', email);
+      await User.findByIdAndUpdate(userData.userId, {
+        googleId: googleId,
+        profileImage: picture
+      });
     }
 
     const { role, fullName, userId, barberId } = userData;

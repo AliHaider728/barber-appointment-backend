@@ -5,7 +5,7 @@ import jwt from 'jsonwebtoken';
 
 const router = express.Router();
 
-// 🔥 Middleware to verify barber token
+//  Middleware to verify barber token
 const verifyBarber = (req, res, next) => {
   try {
     const token = req.headers.authorization?.split(' ')[1];
@@ -27,7 +27,7 @@ const verifyBarber = (req, res, next) => {
   }
 };
 
-// 🔥 NEW: GET logged-in barber's leaves
+//  NEW: GET logged-in barber's leaves
 router.get('/barber/me', verifyBarber, async (req, res) => {
   try {
     const barberId = req.barber.id;
@@ -42,7 +42,7 @@ router.get('/barber/me', verifyBarber, async (req, res) => {
   }
 });
 
-// 🔥 NEW: CREATE leave request by logged-in barber
+//  NEW: CREATE leave request by logged-in barber
 router.post('/barber/me', verifyBarber, async (req, res) => {
   try {
     const barberId = req.barber.id;
@@ -75,7 +75,7 @@ router.post('/barber/me', verifyBarber, async (req, res) => {
   }
 });
 
-// 🔥 NEW: DELETE leave request by logged-in barber (only if pending)
+//  NEW: DELETE leave request by logged-in barber (only if pending)
 router.delete('/barber/me/:id', verifyBarber, async (req, res) => {
   try {
     const barberId = req.barber.id;
