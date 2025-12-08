@@ -27,6 +27,34 @@ const verifyBarber = (req, res, next) => {
   }
 };
 
+// NEW: GET leaves for barber on specific date (for booking slots)
+router.get('/barber/:barberId/date/:date', async (req, res) => {
+  try {
+    const { barberId, date } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(barberId)) {
+      return res.status(400).json({ message: 'Invalid barber ID' });
+    }
+
+    const startOfDay = new Date(date);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(date);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const leaves = await Leave.find({
+      barber: barberId,
+      startDate: { $lte: endOfDay },
+      endDate: { $gte: startOfDay },
+      status: 'approved'
+    }).select('startDate endDate');
+
+    res.json(leaves);
+  } catch (error) {
+    console.error('Get barber leaves by date error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 //  NEW: GET logged-in barber's leaves
 router.get('/barber/me', verifyBarber, async (req, res) => {
   try {
@@ -46,17 +74,17 @@ router.get('/barber/me', verifyBarber, async (req, res) => {
 router.post('/barber/me', verifyBarber, async (req, res) => {
   try {
     const barberId = req.barber.id;
-    const { startDate, endDate, reason } = req.body;
+    const { date, startTime, endTime, reason } = req.body;
 
-    if (!startDate || !endDate) {
-      return res.status(400).json({ message: 'Start date and end date required' });
+    if (!date || !startTime || !endTime) {
+      return res.status(400).json({ message: 'Date, start time, and end time required' });
     }
 
-    const start = new Date(startDate);
-    const end = new Date(endDate);
+    const start = new Date(`${date}T${startTime}:00`);
+    const end = new Date(`${date}T${endTime}:00`);
 
-    if (start > end) {
-      return res.status(400).json({ message: 'End date must be after start date' });
+    if (start >= end) {
+      return res.status(400).json({ message: 'End time must be after start time' });
     }
 
     const leave = new Leave({
@@ -146,20 +174,27 @@ router.get('/', async (req, res) => {
 // CREATE leave request (Admin can create for any barber)
 router.post('/', async (req, res) => {
   try {
-    const { barber, startDate, endDate, reason } = req.body;
+    const { barber, date, startTime, endTime, reason } = req.body;
     
     if (!barber || !mongoose.Types.ObjectId.isValid(barber)) {
       return res.status(400).json({ message: 'Valid barber ID required' });
     }
 
-    if (!startDate || !endDate) {
-      return res.status(400).json({ message: 'Start and end dates required' });
+    if (!date || !startTime || !endTime) {
+      return res.status(400).json({ message: 'Date, start time, and end time required' });
+    }
+
+    const start = new Date(`${date}T${startTime}:00`);
+    const end = new Date(`${date}T${endTime}:00`);
+
+    if (start >= end) {
+      return res.status(400).json({ message: 'End time must be after start time' });
     }
 
     const leave = new Leave({
       barber,
-      startDate: new Date(startDate),
-      endDate: new Date(endDate),
+      startDate: start,
+      endDate: end,
       reason: reason || 'Leave',
       status: 'pending'
     });
@@ -180,19 +215,36 @@ router.post('/', async (req, res) => {
 router.put('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { status } = req.body;
+    const { status, date, startTime, endTime, reason, barber } = req.body;
     
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ message: 'Invalid leave ID' });
     }
 
-    if (!['pending', 'approved', 'rejected'].includes(status)) {
-      return res.status(400).json({ message: 'Invalid status' });
+    const updateData = {};
+    if (status) {
+      if (!['pending', 'approved', 'rejected'].includes(status)) {
+        return res.status(400).json({ message: 'Invalid status' });
+      }
+      updateData.status = status;
     }
+
+    if (date && startTime && endTime) {
+      const start = new Date(`${date}T${startTime}:00`);
+      const end = new Date(`${date}T${endTime}:00`);
+      if (start >= end) {
+        return res.status(400).json({ message: 'End time must be after start time' });
+      }
+      updateData.startDate = start;
+      updateData.endDate = end;
+    }
+
+    if (reason) updateData.reason = reason;
+    if (barber) updateData.barber = barber;
 
     const leave = await Leave.findByIdAndUpdate(
       id,
-      { status },
+      updateData,
       { new: true }
     ).populate('barber', 'name email');
 

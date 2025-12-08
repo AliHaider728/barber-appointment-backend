@@ -1,220 +1,284 @@
-// backend/routes/barbers.js
 import express from 'express';
-import Barber from '../models/Barber.js';
+import Leave from '../models/Leave.js';
 import mongoose from 'mongoose';
-import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 
 const router = express.Router();
 
-// Helper to clean specialties
-const parseSpecialties = (specialties) => {
-  if (Array.isArray(specialties)) {
-    return specialties.map(s => s.trim()).filter(Boolean);
+//  Middleware to verify barber token
+const verifyBarber = (req, res, next) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    
+    if (!token) {
+      return res.status(401).json({ message: 'No token provided' });
+    }
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret-key');
+    
+    if (decoded.role !== 'barber') {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+
+    req.barber = decoded;
+    next();
+  } catch (error) {
+    res.status(401).json({ message: 'Invalid token' });
   }
-  if (typeof specialties === 'string') {
-    return specialties.split(',').map(s => s.trim()).filter(Boolean);
-  }
-  return [];
 };
 
-// CREATE - Barber Add
-router.post('/', async (req, res) => {
+// NEW: GET leaves for barber on specific date (for booking slots)
+router.get('/barber/:barberId/date/:date', async (req, res) => {
   try {
-    console.log('POST /api/barbers - Received:', req.body);
+    const { barberId, date } = req.params;
 
-    const { name, experienceYears, gender, specialties, branch, email, password } = req.body;
-
-    // Validation
-    if (!name || !experienceYears || !gender || !branch || !email || !password) {
-      return res.status(400).json({ 
-        success: false,
-        message: 'Name, experience, gender, branch, email aur password required hain!' 
-      });
+    if (!mongoose.Types.ObjectId.isValid(barberId)) {
+      return res.status(400).json({ message: 'Invalid barber ID' });
     }
 
-    // Password length check
-    if (password.length < 6) {
-      return res.status(400).json({ 
-        success: false,
-        message: 'Password kam se kam 6 characters ka hona chahiye!' 
-      });
-    }
+    const startOfDay = new Date(date);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(date);
+    endOfDay.setHours(23, 59, 59, 999);
 
-    if (!mongoose.Types.ObjectId.isValid(branch)) {
-      return res.status(400).json({ 
-        success: false,
-        message: 'Invalid Branch ID' 
-      });
-    }
+    const leaves = await Leave.find({
+      barber: barberId,
+      startDate: { $lte: endOfDay },
+      endDate: { $gte: startOfDay },
+      status: 'approved'
+    }).select('startDate endDate');
 
-    const parsedSpecialties = parseSpecialties(specialties || []);
-    if (parsedSpecialties.length === 0) {
-      return res.status(400).json({ 
-        success: false,
-        message: 'Kam se kam ek service select karo!' 
-      });
-    }
-
-    // Check duplicate email
-    const existingEmail = await Barber.findOne({ email: email.trim().toLowerCase() });
-    if (existingEmail) {
-      return res.status(400).json({ 
-        success: false,
-        message: 'Ye email pehle se use ho raha hai!' 
-      });
-    }
-
-    // Hash password
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    // Create barber
-    const barber = new Barber({
-      name: name.trim(),
-      experienceYears: Number(experienceYears),
-      gender: gender.toLowerCase(),
-      specialties: parsedSpecialties,
-      branch,
-      email: email.trim().toLowerCase(),
-      password: hashedPassword
-    });
-
-    await barber.save();
-
-    const populated = await Barber.findById(barber._id).populate('branch', 'name city');
-
-    console.log('✅ New Barber Created:', populated.name);
-    res.status(201).json(populated);
-
+    res.json(leaves);
   } catch (error) {
-    console.error('Barber Create Error:', error);
-
-    // MongoDB Duplicate Key Error
-    if (error.code === 11000) {
-      return res.status(400).json({ 
-        success: false,
-        message: 'Barber with this name or email already exists!' 
-      });
-    }
-
-    res.status(500).json({ 
-      success: false,
-      message: 'Server error: ' + error.message 
-    });
-  }
-});
-
-// GET all barbers
-router.get('/', async (req, res) => {
-  try {
-    const barbers = await Barber.find()
-      .populate('branch', 'name city')
-      .sort({ createdAt: -1 });
-    res.json(barbers);
-  } catch (error) {
-    console.error('Get barbers error:', error);
-    res.status(500).json({ success: false, message: 'Server error' });
-  }
-});
-
-// GET single barber
-router.get('/:id', async (req, res) => {
-  try {
-    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
-      return res.status(400).json({ message: 'Invalid ID' });
-    }
-    const barber = await Barber.findById(req.params.id).populate('branch', 'name city');
-    if (!barber) return res.status(404).json({ message: 'Barber not found' });
-    res.json(barber);
-  } catch (error) {
-    console.error('Get barber error:', error);
+    console.error('Get barber leaves by date error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-// UPDATE barber
+//  NEW: GET logged-in barber's leaves
+router.get('/barber/me', verifyBarber, async (req, res) => {
+  try {
+    const barberId = req.barber.id;
+    
+    const leaves = await Leave.find({ barber: barberId })
+      .sort({ createdAt: -1 });
+
+    res.json(leaves);
+  } catch (error) {
+    console.error('Get barber leaves error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+//  NEW: CREATE leave request by logged-in barber
+router.post('/barber/me', verifyBarber, async (req, res) => {
+  try {
+    const barberId = req.barber.id;
+    const { date, startTime, endTime, reason } = req.body;
+
+    if (!date || !startTime || !endTime) {
+      return res.status(400).json({ message: 'Date, start time, and end time required' });
+    }
+
+    const start = new Date(`${date}T${startTime}:00`);
+    const end = new Date(`${date}T${endTime}:00`);
+
+    if (start >= end) {
+      return res.status(400).json({ message: 'End time must be after start time' });
+    }
+
+    const leave = new Leave({
+      barber: barberId,
+      startDate: start,
+      endDate: end,
+      reason: reason || 'Personal leave',
+      status: 'pending'
+    });
+
+    await leave.save();
+    res.status(201).json(leave);
+  } catch (error) {
+    console.error('Create leave error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+//  NEW: DELETE leave request by logged-in barber (only if pending)
+router.delete('/barber/me/:id', verifyBarber, async (req, res) => {
+  try {
+    const barberId = req.barber.id;
+    const leaveId = req.params.id;
+
+    if (!mongoose.Types.ObjectId.isValid(leaveId)) {
+      return res.status(400).json({ message: 'Invalid leave ID' });
+    }
+
+    const leave = await Leave.findOne({
+      _id: leaveId,
+      barber: barberId,
+      status: 'pending' // Only delete pending leaves
+    });
+
+    if (!leave) {
+      return res.status(404).json({ 
+        message: 'Leave not found or cannot be deleted (approved/rejected leaves cannot be deleted)' 
+      });
+    }
+
+    await Leave.findByIdAndDelete(leaveId);
+    res.json({ message: 'Leave request deleted successfully' });
+  } catch (error) {
+    console.error('Delete leave error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// GET leaves for specific barber (Admin route)
+router.get('/barber/:barberId', async (req, res) => {
+  try {
+    const { barberId } = req.params;
+    
+    if (!mongoose.Types.ObjectId.isValid(barberId)) {
+      return res.status(400).json({ message: 'Invalid barber ID' });
+    }
+
+    const leaves = await Leave.find({ barber: barberId })
+      .populate('barber', 'name email')
+      .sort({ startDate: -1 });
+
+    res.json(leaves);
+  } catch (error) {
+    console.error('Get leaves error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// GET all leaves (Admin only)
+router.get('/', async (req, res) => {
+  try {
+    const leaves = await Leave.find()
+      .populate('barber', 'name email branch')
+      .populate({
+        path: 'barber',
+        populate: { path: 'branch', select: 'name city' }
+      })
+      .sort({ createdAt: -1 });
+
+    res.json(leaves);
+  } catch (error) {
+    console.error('Get all leaves error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// CREATE leave request (Admin can create for any barber)
+router.post('/', async (req, res) => {
+  try {
+    const { barber, date, startTime, endTime, reason } = req.body;
+    
+    if (!barber || !mongoose.Types.ObjectId.isValid(barber)) {
+      return res.status(400).json({ message: 'Valid barber ID required' });
+    }
+
+    if (!date || !startTime || !endTime) {
+      return res.status(400).json({ message: 'Date, start time, and end time required' });
+    }
+
+    const start = new Date(`${date}T${startTime}:00`);
+    const end = new Date(`${date}T${endTime}:00`);
+
+    if (start >= end) {
+      return res.status(400).json({ message: 'End time must be after start time' });
+    }
+
+    const leave = new Leave({
+      barber,
+      startDate: start,
+      endDate: end,
+      reason: reason || 'Leave',
+      status: 'pending'
+    });
+
+    await leave.save();
+    
+    const populated = await Leave.findById(leave._id)
+      .populate('barber', 'name email');
+    
+    res.status(201).json(populated);
+  } catch (error) {
+    console.error('Create leave error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// UPDATE leave status (Admin only - approve/reject)
 router.put('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, experienceYears, gender, specialties, branch, email, password } = req.body;
-
-    if (!mongoose.Types.ObjectId.isValid(id) || !mongoose.Types.ObjectId.isValid(branch)) {
-      return res.status(400).json({ message: 'Invalid ID' });
+    const { status, date, startTime, endTime, reason, barber } = req.body;
+    
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: 'Invalid leave ID' });
     }
 
-    if (!email) {
-      return res.status(400).json({ message: 'Email required' });
-    }
-
-    const parsedSpecialties = parseSpecialties(specialties || []);
-    if (parsedSpecialties.length === 0) {
-      return res.status(400).json({ message: 'At least one specialty required' });
-    }
-
-    // Find existing barber
-    const barber = await Barber.findById(id);
-    if (!barber) return res.status(404).json({ message: 'Barber not found' });
-
-    // Check if email changed and if new email is unique
-    const newEmail = email.trim().toLowerCase();
-    if (newEmail !== barber.email) {
-      const existingEmail = await Barber.findOne({ email: newEmail });
-      if (existingEmail) {
-        return res.status(400).json({ message: 'This email is already in use' });
+    const updateData = {};
+    if (status) {
+      if (!['pending', 'approved', 'rejected'].includes(status)) {
+        return res.status(400).json({ message: 'Invalid status' });
       }
+      updateData.status = status;
     }
 
-    // Update data
-    const updatedData = {
-      name: name.trim(),
-      experienceYears: Number(experienceYears),
-      gender: gender.toLowerCase(),
-      specialties: parsedSpecialties,
-      branch,
-      email: newEmail
-    };
-
-    // Update password if provided
-    if (password && password.trim() && password.length >= 6) {
-      updatedData.password = await bcrypt.hash(password.trim(), 10);
+    if (date && startTime && endTime) {
+      const start = new Date(`${date}T${startTime}:00`);
+      const end = new Date(`${date}T${endTime}:00`);
+      if (start >= end) {
+        return res.status(400).json({ message: 'End time must be after start time' });
+      }
+      updateData.startDate = start;
+      updateData.endDate = end;
     }
 
-    const updated = await Barber.findByIdAndUpdate(id, updatedData, { 
-      new: true, 
-      runValidators: true 
-    });
+    if (reason) updateData.reason = reason;
+    if (barber) updateData.barber = barber;
 
-    const populated = await Barber.findById(updated._id).populate('branch', 'name city');
-    console.log('✅ Barber Updated:', populated.name);
-    res.json(populated);
+    const leave = await Leave.findByIdAndUpdate(
+      id,
+      updateData,
+      { new: true }
+    ).populate('barber', 'name email');
 
+    if (!leave) {
+      return res.status(404).json({ message: 'Leave not found' });
+    }
+
+    res.json(leave);
   } catch (error) {
-    console.error('Update error:', error);
-    if (error.code === 11000) {
-      return res.status(400).json({ message: 'Barber name or email already exists' });
-    }
-    res.status(500).json({ message: error.message });
-  }
-});
-
-// DELETE barber
-router.delete('/:id', async (req, res) => {
-  try {
-    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
-      return res.status(400).json({ message: 'Invalid ID' });
-    }
-    
-    const barber = await Barber.findById(req.params.id);
-    if (!barber) return res.status(404).json({ message: 'Not found' });
-
-    // Delete from MongoDB
-    await Barber.deleteOne({ _id: req.params.id });
-    
-    console.log('✅ Barber Deleted:', barber.name);
-    res.json({ success: true, message: 'Barber deleted successfully' });
-  } catch (error) {
-    console.error('Delete error:', error);
+    console.error('Update leave error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-export default router;  
+// DELETE leave (Admin only)
+router.delete('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: 'Invalid leave ID' });
+    }
+
+    const leave = await Leave.findByIdAndDelete(id);
+    
+    if (!leave) {
+      return res.status(404).json({ message: 'Leave not found' });
+    }
+
+    res.json({ message: 'Leave deleted successfully' });
+  } catch (error) {
+    console.error('Delete leave error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+export default router;
