@@ -161,7 +161,11 @@ router.get('/barber/:barberId/date/:date', async (req, res) => {
       barber: barberId,
       date: { $gte: startOfDay, $lte: endOfDay },
       status: { $nin: ['rejected', 'cancelled'] }
-    }).select('date duration status');
+    })
+    .populate('barber', 'name email')
+    .populate('branch', 'name')
+    .populate('services.serviceRef', 'name duration')
+    .select('date duration status customerName email phone services');
 
     res.json(appointments);
   } catch (error) {
@@ -285,11 +289,11 @@ router.post('/', optionalAuth, async (req, res) => {
   }
 });
 
-// UPDATE appointment status (with ownership check for users)
+// UPDATE appointment (with ownership check + barber reassignment support)
 router.put('/:id', optionalAuth, async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, paymentStatus } = req.body;
+    const { status, paymentStatus, barber } = req.body; // ← ADDED BARBER FIELD
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ message: 'Invalid appointment ID' });
@@ -325,6 +329,15 @@ router.put('/:id', optionalAuth, async (req, res) => {
         return res.status(400).json({ message: 'Invalid payment status' });
       }
       updateData.paymentStatus = paymentStatus;
+    }
+
+    // NEW: Support barber reassignment for leave conflict resolution
+    if (barber) {
+      if (!mongoose.Types.ObjectId.isValid(barber)) {
+        return res.status(400).json({ message: 'Invalid barber ID' });
+      }
+      updateData.barber = barber;
+      console.log('  Reassigning appointment to new barber:', barber);
     }
 
     const appointment = await Appointment.findByIdAndUpdate(
