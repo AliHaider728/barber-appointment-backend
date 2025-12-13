@@ -47,7 +47,7 @@ mongoose.connect(process.env.MONGODB_URI)
       { name: "Hair Treatment", duration: "45 minutes", price: "£45", gender: "female" },
       { name: "Nail Care", duration: "30 minutes", price: "£20", gender: "female" }
     ];
-
+ 
     const allServices = [];
     for (const s of serviceData) {
       let service = await Service.findOne({ name: s.name });
@@ -209,7 +209,7 @@ mongoose.connect(process.env.MONGODB_URI)
     console.log('  ADMIN:');
     console.log('   Email:    admin@barbershop.com');
     console.log('   Password: admin123');
-    console.log('     Can login with Email/Password OR Google\n');
+    console.log('     Can login with Email/Password only (Google not supported for admins)\n');  // FIXED COMMENT HERE
     console.log('  BARBERS (all use same password):');
     console.log('   Email:    barber1@barbershop.com');
     console.log('   Email:    barber2@barbershop.com');

@@ -1,4 +1,3 @@
-// Fixed backend/routes/auth.js
 import express from 'express';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
@@ -119,6 +118,7 @@ router.post('/login', async (req, res) => {
       });
     }
 
+    
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(401).json({ message: 'Invalid credentials' });
@@ -457,5 +457,31 @@ router.get('/verify-user', verifyToken, async (req, res) => {
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });
+
+// ADDED: Middleware for admin authentication
+export const authenticateAdmin = (req, res, next) => {
+  verifyToken(req, res, async () => {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Admin access required' });
+    }
+
+    // Fetch full admin for permissions
+    const admin = await Admin.findById(req.user.id);
+    if (!admin) {
+      return res.status(404).json({ message: 'Admin not found' });
+    }
+
+    req.admin = admin; // Attach full admin object
+    next();
+  });
+};
+
+// ADDED: Middleware to check specific permission
+export const checkPermission = (permission) => (req, res, next) => {
+  if (!req.admin || !req.admin.permissions.includes(permission)) {
+    return res.status(403).json({ message: `Permission "${permission}" required` });
+  }
+  next();
+};
 
 export default router;

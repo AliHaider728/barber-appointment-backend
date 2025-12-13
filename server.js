@@ -14,6 +14,7 @@ import serviceRoutes from './routes/services.js';
 import barberShiftRoutes from './routes/barberShifts.js';
 import paymentRoute from './routes/payments.js';
 import leaveRoutes from './routes/leaves.js'; 
+import adminRoutes from './routes/admins.js'
 
 dotenv.config();
 
@@ -136,6 +137,7 @@ app.use('/api/branches', branchRoutes);
 app.use('/api/services', serviceRoutes);
 app.use('/api/payments', paymentRoute);
 app.use('/api/leaves', leaveRoutes);
+app.use('/api/admins', adminRoutes);
 
 // 404 PAGE
 app.use('*', (req, res) => {
