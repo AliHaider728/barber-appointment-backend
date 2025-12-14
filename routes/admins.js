@@ -5,6 +5,25 @@ import { authenticateAdmin, checkPermission } from './auth.js';
 
 const router = express.Router();
 
+// TEST ROUTE - Check auth aur permissions
+router.get('/test-auth', authenticateAdmin, async (req, res) => {
+  res.json({
+    success: true,
+    message: '✅ Authentication working!',
+    user: {
+      id: req.user.id,
+      email: req.user.email,
+      role: req.user.role
+    },
+    admin: {
+      id: req.admin._id,
+      email: req.admin.email,
+      fullName: req.admin.fullName,
+      permissions: req.admin.permissions
+    }
+  });
+});
+
 // Get all admins
 router.get('/', authenticateAdmin, checkPermission('manage_admins'), async (req, res) => {
   try {
@@ -36,6 +55,7 @@ router.post('/', authenticateAdmin, checkPermission('manage_admins'), async (req
       fullName,
       email,
       password: hashedPassword,
+      permissions: ['manage_barbers', 'manage_branches', 'manage_services', 'manage_appointments', 'manage_admins']
     });
 
     await admin.save();

@@ -1,4 +1,3 @@
-// backend/models/Admins.js
 import mongoose from 'mongoose';
 
 const adminSchema = new mongoose.Schema({
@@ -27,7 +26,6 @@ const adminSchema = new mongoose.Schema({
   }
 }, { timestamps: true });
 
-// Index for faster lookups
 adminSchema.index({ email: 1 });
 
 export default mongoose.model('Admin', adminSchema);

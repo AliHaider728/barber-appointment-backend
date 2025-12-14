@@ -47,7 +47,6 @@ router.get('/', (req, res) => {
 
 // HELPER: Determine user role and get user data
 const getUserWithRole = async (email) => {
-  // Check Admin first
   let user = await Admin.findOne({ email });
   if (user) {
     return { 
@@ -58,7 +57,6 @@ const getUserWithRole = async (email) => {
     };
   }
 
-  // Check Barber
   user = await Barber.findOne({ email }).populate('branch');
   if (user) {
     return { 
@@ -70,7 +68,6 @@ const getUserWithRole = async (email) => {
     };
   }
 
-  // Check User
   user = await User.findOne({ email });
   if (user) {
     return { 
@@ -95,7 +92,6 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ message: 'Email and password required' });
     }
 
-    // Get user with role
     const userData = await getUserWithRole(email);
     
     if (!userData) {
@@ -104,27 +100,23 @@ router.post('/login', async (req, res) => {
 
     const { user, role, fullName, userId, barberId } = userData;
 
-    // FIXED: Check if this is a Google-only account
     if (role === 'user' && user.googleId && !user.password) {
       return res.status(400).json({ 
         message: 'This account uses Google Sign-In. Please use Google to login.' 
       });
     }
 
-    // Verify password
     if (!user.password) {
       return res.status(400).json({ 
         message: 'Password not set. Please use Google Sign-In or reset your password.' 
       });
     }
 
-    
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
-    // Generate JWT
     const jwtToken = jwt.sign(
       { 
         id: userId.toString(), 
@@ -137,9 +129,8 @@ router.post('/login', async (req, res) => {
       { expiresIn: '7d' }
     );
 
-    console.log('Login successful:', { email, role });
+    console.log('✅ Login successful:', { email, role });
 
-    // Send response matching frontend expectations
     res.json({
       token: jwtToken,
       user: {
@@ -152,7 +143,7 @@ router.post('/login', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Login error:', error);
+    console.error(' Login error:', error);
     res.status(500).json({ message: 'Server error: ' + error.message });
   }
 });
@@ -162,33 +153,24 @@ router.post('/signup', async (req, res) => {
   try {
     const { email, password, fullName = 'New User' } = req.body;
 
-    console.log('Signup attempt:', { email, fullName });
-
     if (!email || !password) {
       return res.status(400).json({ message: 'Email and password required' });
     }
 
-    // Check if email already exists
     const existing = await getUserWithRole(email);
     if (existing) {
       return res.status(400).json({ message: 'Email already registered' });
     }
 
-    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // FIXED: Create new user WITHOUT googleId (manual signup)
     const newUser = await User.create({ 
       email, 
       password: hashedPassword, 
       fullName,
       role: 'user'
-      // No googleId field - this is manual signup
     });
 
-    console.log('User created:', { email, id: newUser._id });
-
-    // Generate JWT
     const jwtToken = jwt.sign(
       { 
         id: newUser._id.toString(), 
@@ -226,9 +208,6 @@ router.post('/google', async (req, res) => {
       return res.status(400).json({ message: 'Google token required' });
     }
 
-    console.log('Google OAuth attempt');
-
-    // Verify Google token
     const response = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${token}`);
     
     if (!response.ok) {
@@ -243,22 +222,15 @@ router.post('/google', async (req, res) => {
 
     const { email, name, picture, sub: googleId } = googleUser;
 
-    console.log('Google user verified:', { email, name });
-
-    // Check if user exists
     let userData = await getUserWithRole(email);
     
     if (!userData) {
-      // FIXED: Create new Google user with googleId
-      console.log('Creating new user from Google:', email);
-      
       const newUser = await User.create({
         email,
-        googleId: googleId, // Store Google ID
+        googleId: googleId,
         fullName: name,
         profileImage: picture,
         role: 'user'
-        // No password field for Google users
       });
 
       userData = {
@@ -268,8 +240,6 @@ router.post('/google', async (req, res) => {
         userId: newUser._id
       };
     } else if (userData.role === 'user' && !userData.user.googleId) {
-      // FIXED: If user exists but without googleId, link Google account
-      console.log('Linking Google account to existing user:', email);
       await User.findByIdAndUpdate(userData.userId, {
         googleId: googleId,
         profileImage: picture
@@ -278,7 +248,6 @@ router.post('/google', async (req, res) => {
 
     const { role, fullName, userId, barberId } = userData;
 
-    // Generate JWT
     const jwtToken = jwt.sign(
       { 
         id: userId.toString(), 
@@ -290,8 +259,6 @@ router.post('/google', async (req, res) => {
       JWT_SECRET,
       { expiresIn: '7d' }
     );
-
-    console.log('Google login successful:', { email, role });
 
     res.json({
       token: jwtToken,
@@ -458,28 +425,42 @@ router.get('/verify-user', verifyToken, async (req, res) => {
   }
 });
 
-// ADDED: Middleware for admin authentication
-export const authenticateAdmin = (req, res, next) => {
-  verifyToken(req, res, async () => {
-    if (req.user.role !== 'admin') {
+// FIXED: Middleware for admin authentication
+export const authenticateAdmin = async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      return res.status(401).json({ message: 'No token provided' });
+    }
+    
+    const token = authHeader.split(' ')[1];
+    const decoded = jwt.verify(token, JWT_SECRET);
+    
+    if (decoded.role !== 'admin') {
       return res.status(403).json({ message: 'Admin access required' });
     }
 
-    // Fetch full admin for permissions
-    const admin = await Admin.findById(req.user.id);
+    const admin = await Admin.findById(decoded.id);
     if (!admin) {
       return res.status(404).json({ message: 'Admin not found' });
     }
 
-    req.admin = admin; // Attach full admin object
+    req.user = decoded;
+    req.admin = admin;
     next();
-  });
+  } catch (err) {
+    console.error(' Admin auth error:', err);
+    return res.status(401).json({ message: 'Invalid token' });
+  }
 };
 
-// ADDED: Middleware to check specific permission
+// FIXED: Middleware to check specific permission
 export const checkPermission = (permission) => (req, res, next) => {
-  if (!req.admin || !req.admin.permissions.includes(permission)) {
-    return res.status(403).json({ message: `Permission "${permission}" required` });
+  if (!req.admin || !req.admin.permissions || !req.admin.permissions.includes(permission)) {
+    return res.status(403).json({ 
+      message: `Permission "${permission}" required`,
+      userPermissions: req.admin?.permissions || []
+    });
   }
   next();
 };
