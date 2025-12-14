@@ -138,7 +138,6 @@ app.use('/api/services', serviceRoutes);
 app.use('/api/payments', paymentRoute);
 app.use('/api/leaves', leaveRoutes);
 app.use('/api/admins', adminRoutes);
-
 // 404 PAGE
 app.use('*', (req, res) => {
   console.log('404 - Route not found:', req.originalUrl);

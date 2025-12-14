@@ -86,7 +86,7 @@ router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    console.log('Login attempt:', { email });
+    console.log('[AUTH] Login attempt:', { email });
 
     if (!email || !password) {
       return res.status(400).json({ message: 'Email and password required' });
@@ -129,7 +129,7 @@ router.post('/login', async (req, res) => {
       { expiresIn: '7d' }
     );
 
-    console.log('✅ Login successful:', { email, role });
+    console.log('[AUTH] Login successful:', { email, role });
 
     res.json({
       token: jwtToken,
@@ -143,7 +143,7 @@ router.post('/login', async (req, res) => {
     });
 
   } catch (error) {
-    console.error(' Login error:', error);
+    console.error('[AUTH] Login error:', error);
     res.status(500).json({ message: 'Server error: ' + error.message });
   }
 });
@@ -194,7 +194,7 @@ router.post('/signup', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Signup error:', error);
+    console.error('[AUTH] Signup error:', error);
     res.status(500).json({ message: 'Server error: ' + error.message });
   }
 });
@@ -273,7 +273,7 @@ router.post('/google', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Google login error:', error);
+    console.error('[AUTH] Google login error:', error);
     res.status(500).json({ message: 'Server error: ' + error.message });
   }
 });
@@ -319,7 +319,7 @@ router.get('/me', verifyToken, async (req, res) => {
       user: userData
     });
   } catch (error) {
-    console.error('Get user error:', error);
+    console.error('[AUTH] Get user error:', error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });
@@ -350,7 +350,7 @@ router.get('/verify-admin', verifyToken, async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Admin verification error:', error);
+    console.error('[AUTH] Admin verification error:', error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });
@@ -385,7 +385,7 @@ router.get('/verify-barber', verifyToken, async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Barber verification error:', error);
+    console.error('[AUTH] Barber verification error:', error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });
@@ -420,48 +420,71 @@ router.get('/verify-user', verifyToken, async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('User verification error:', error);
+    console.error('[AUTH] User verification error:', error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });
 
-// FIXED: Middleware for admin authentication
+// MIDDLEWARE: Admin Authentication
 export const authenticateAdmin = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
+    
     if (!authHeader?.startsWith('Bearer ')) {
+      console.error('[AUTH] No token provided');
       return res.status(401).json({ message: 'No token provided' });
     }
     
     const token = authHeader.split(' ')[1];
-    const decoded = jwt.verify(token, JWT_SECRET);
-    
-    if (decoded.role !== 'admin') {
-      return res.status(403).json({ message: 'Admin access required' });
-    }
 
-    const admin = await Admin.findById(decoded.id);
-    if (!admin) {
-      return res.status(404).json({ message: 'Admin not found' });
-    }
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET);
+      
+      if (decoded.role !== 'admin') {
+        console.error('[AUTH] Not an admin:', decoded.role);
+        return res.status(403).json({ message: 'Admin access required' });
+      }
 
-    req.user = decoded;
-    req.admin = admin;
-    next();
+      const admin = await Admin.findById(decoded.id);
+      if (!admin) {
+        console.error('[AUTH] Admin not found:', decoded.id);
+        return res.status(404).json({ message: 'Admin not found' });
+      }
+
+      req.user = decoded;
+      req.admin = admin;
+      
+      console.log('[AUTH] Admin authenticated:', admin.email);
+      next();
+    } catch (jwtError) {
+      console.error('[AUTH] JWT verification failed:', jwtError.message);
+      return res.status(401).json({ message: 'Invalid or expired token' });
+    }
   } catch (err) {
-    console.error(' Admin auth error:', err);
-    return res.status(401).json({ message: 'Invalid token' });
+    console.error('[AUTH] Admin auth error:', err);
+    return res.status(500).json({ message: 'Authentication error' });
   }
 };
 
-// FIXED: Middleware to check specific permission
+// MIDDLEWARE: Check Permission
 export const checkPermission = (permission) => (req, res, next) => {
-  if (!req.admin || !req.admin.permissions || !req.admin.permissions.includes(permission)) {
+  if (!req.admin) {
+    return res.status(403).json({ message: 'Admin authentication required' });
+  }
+
+  if (!req.admin.permissions || !Array.isArray(req.admin.permissions)) {
+    console.warn('[AUTH] Admin has no permissions array');
+    return res.status(403).json({ message: 'No permissions configured' });
+  }
+
+  if (!req.admin.permissions.includes(permission)) {
+    console.warn(`[AUTH] Permission denied: ${permission}`);
     return res.status(403).json({ 
       message: `Permission "${permission}" required`,
-      userPermissions: req.admin?.permissions || []
+      userPermissions: req.admin.permissions
     });
   }
+  
   next();
 };
 
