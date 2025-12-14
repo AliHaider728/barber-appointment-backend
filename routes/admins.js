@@ -1,15 +1,15 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import Admin from '../models/Admins.js';
-import { authenticateAdmin, checkPermission } from './auth.js';
+import { authenticateAdmin, checkPermission } from './auth.js'; 
 
 const router = express.Router();
 
-// TEST ROUTE - Check if auth is working
+// TEST ROUTE - Check auth and permissions
 router.get('/test-auth', authenticateAdmin, async (req, res) => {
   res.json({
     success: true,
-    message: '  Authentication working!',
+    message: 'Authentication working',
     user: {
       id: req.user.id,
       email: req.user.email,
@@ -24,117 +24,107 @@ router.get('/test-auth', authenticateAdmin, async (req, res) => {
   });
 });
 
-// Get all admins - FIXED: Made permission check optional
-router.get('/', authenticateAdmin, async (req, res) => {
+// Get all admins
+router.get('/', authenticateAdmin, checkPermission('manage_admins'), async (req, res) => {
   try {
-    // Check if user has permission (but don't block if missing)
-    if (req.admin && (!req.admin.permissions || !req.admin.permissions.includes('manage_admins'))) {
-      console.warn('  Admin lacks manage_admins permission');
-    }
-
+    console.log('[ADMINS] Fetching all admins');
     const admins = await Admin.find().select('-password');
+    console.log('[ADMINS] Found admins:', admins.length);
     res.json(admins);
   } catch (err) {
-    console.error('  Get admins error:', err);
+    console.error('[ADMINS] Get error:', err);
     res.status(500).json({ message: 'Server error: ' + err.message });
   }
 });
 
-// Create new admin - FIXED: Better validation
-router.post('/', authenticateAdmin, async (req, res) => {
+// Create new admin
+router.post('/', authenticateAdmin, checkPermission('manage_admins'), async (req, res) => {
   try {
     const { fullName, email, password } = req.body;
+    
+    console.log('[ADMINS] Create attempt:', { fullName, email });
     
     if (!fullName || !email || !password) {
       return res.status(400).json({ message: 'All fields are required' });
     }
 
-    // Check if email already exists
     const existing = await Admin.findOne({ email });
     if (existing) {
       return res.status(400).json({ message: 'Email already exists' });
     }
 
-    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
     
-    // Create admin with all permissions
     const admin = new Admin({
       fullName,
       email,
       password: hashedPassword,
-      role: 'admin',
-      permissions: [
-        'manage_barbers',
-        'manage_branches', 
-        'manage_services',
-        'manage_appointments',
-        'manage_admins'
-      ]
+      permissions: ['manage_barbers', 'manage_branches', 'manage_services', 'manage_appointments', 'manage_admins']
     });
 
     await admin.save();
-    
-    // Return without password
     const { password: _, ...adminData } = admin.toObject();
     
-    console.log('  Admin created:', adminData.email);
+    console.log('[ADMINS] Admin created successfully:', email);
     res.status(201).json(adminData);
   } catch (err) {
-    console.error('  Create admin error:', err);
+    console.error('[ADMINS] Create error:', err);
     res.status(500).json({ message: 'Server error: ' + err.message });
   }
 });
 
-// Update admin - FIXED: Better error handling
-router.put('/:id', authenticateAdmin, async (req, res) => {
+// Update admin
+router.put('/:id', authenticateAdmin, checkPermission('manage_admins'), async (req, res) => {
   try {
     const { fullName, email, password } = req.body;
-    const updates = {};
-
-    if (fullName) updates.fullName = fullName;
-    if (email) updates.email = email;
     
+    console.log('[ADMINS] Update attempt:', req.params.id);
+    
+    const updates = { fullName, email };
+
     if (password && password.trim() !== '') {
       updates.password = await bcrypt.hash(password, 10);
+      console.log('[ADMINS] Password will be updated');
     }
 
     const admin = await Admin.findByIdAndUpdate(
       req.params.id, 
       updates, 
-      { new: true, runValidators: true }
+      { new: true }
     ).select('-password');
     
     if (!admin) {
       return res.status(404).json({ message: 'Admin not found' });
     }
 
-    console.log('  Admin updated:', admin.email);
+    console.log('[ADMINS] Admin updated successfully:', admin.email);
     res.json(admin);
   } catch (err) {
-    console.error('  Update admin error:', err);
+    console.error('[ADMINS] Update error:', err);
     res.status(500).json({ message: 'Server error: ' + err.message });
   }
 });
 
-// Delete admin - FIXED: Prevent self-deletion
-router.delete('/:id', authenticateAdmin, async (req, res) => {
+// Delete admin
+router.delete('/:id', authenticateAdmin, checkPermission('manage_admins'), async (req, res) => {
   try {
-    // Prevent admin from deleting themselves
+    console.log('[ADMINS] Delete attempt:', req.params.id);
+    
+    // Prevent deleting yourself
     if (req.user.id === req.params.id) {
       return res.status(400).json({ message: 'Cannot delete your own account' });
     }
-
+    
     const admin = await Admin.findByIdAndDelete(req.params.id);
     
     if (!admin) {
       return res.status(404).json({ message: 'Admin not found' });
     }
 
-    console.log('  Admin deleted:', admin.email);
+    console.log('[ADMINS] Admin deleted successfully:', admin.email);
     res.json({ message: 'Admin deleted successfully' });
   } catch (err) {
-    console.error('  Delete admin error:', err);
+    console.error('[ADMINS] Delete error:', err);
     res.status(500).json({ message: 'Server error: ' + err.message });
   }
 });
