@@ -1,5 +1,8 @@
+// backend/routes/payments.js
 import express from 'express';
 import Appointment from '../models/Appointment.js';
+import Payment from '../models/Payment.js';
+import Barber from '../models/Barber.js';
 import Service from '../models/Service.js'; 
 import mongoose from 'mongoose'; 
 import dotenv from 'dotenv';
@@ -8,7 +11,10 @@ import jwt from 'jsonwebtoken';
 dotenv.config();
 const router = express.Router();
 
-// Safe Stripe initialization
+// PLATFORM FEE PERCENTAGE (10% default, change karo agar chahiye)
+const PLATFORM_FEE_PERCENTAGE = 10;
+
+// Stripe initialization
 let stripe = null;
 
 if (process.env.STRIPE_SECRET_KEY) {
@@ -22,7 +28,7 @@ if (process.env.STRIPE_SECRET_KEY) {
     console.error('Stripe import failed:', err.message);
   }
 } else {
-  console.log('STRIPE_SECRET_KEY not found — payments disabled (safe mode)');
+  console.log('STRIPE_SECRET_KEY not found - payments disabled (safe mode)');
 }
 
 // Middleware to verify barber token
@@ -64,7 +70,7 @@ router.get('/barber/me/bookings', verifyBarber, async (req, res) => {
   }
 });
 
-// CREATE PAYMENT INTENT
+// CREATE PAYMENT INTENT WITH SPLIT
 router.post('/create-payment-intent', async (req, res) => {
   if (!stripe) {
     return res.status(400).json({ 
@@ -73,27 +79,59 @@ router.post('/create-payment-intent', async (req, res) => {
   }
 
   try {
-    const { totalPrice, customerEmail, customerName } = req.body;
+    const { totalPrice, customerEmail, customerName, barberId } = req.body;
 
     if (!totalPrice || totalPrice <= 0) {
       return res.status(400).json({ error: 'Invalid amount' });
     }
 
-    const amountInCents = Math.round(totalPrice * 100);
+    if (!barberId) {
+      return res.status(400).json({ error: 'Barber ID required' });
+    }
 
-    const paymentIntent = await stripe.paymentIntents.create({
+    // Get barber details
+    const barber = await Barber.findById(barberId);
+    if (!barber) {
+      return res.status(404).json({ error: 'Barber not found' });
+    }
+
+    // Calculate platform fee and barber amount
+    const platformFee = (totalPrice * PLATFORM_FEE_PERCENTAGE) / 100;
+    const barberAmount = totalPrice - platformFee;
+
+    const amountInCents = Math.round(totalPrice * 100);
+    const platformFeeInCents = Math.round(platformFee * 100);
+
+    // Create payment intent
+    const paymentIntentData = {
       amount: amountInCents,
       currency: 'gbp',
       receipt_email: customerEmail || undefined,
       metadata: {
         customerName: customerName || 'Anonymous',
-        customerEmail: customerEmail || 'no-email@temp.com'
+        customerEmail: customerEmail || 'no-email@temp.com',
+        barberId: barberId,
+        barberName: barber.name,
+        platformFee: platformFee.toFixed(2),
+        barberAmount: barberAmount.toFixed(2)
       }
-    });
+    };
+
+    // If barber has Stripe Connect, set application fee
+    if (barber.stripeAccountId) {
+      paymentIntentData.application_fee_amount = platformFeeInCents;
+      paymentIntentData.transfer_data = {
+        destination: barber.stripeAccountId,
+      };
+    }
+
+    const paymentIntent = await stripe.paymentIntents.create(paymentIntentData);
 
     res.json({
       clientSecret: paymentIntent.client_secret,
-      paymentIntentId: paymentIntent.id
+      paymentIntentId: paymentIntent.id,
+      platformFee: platformFee.toFixed(2),
+      barberAmount: barberAmount.toFixed(2)
     });
   } catch (error) {
     console.error('Payment intent error:', error.message);
@@ -173,7 +211,7 @@ router.post('/create-appointment-with-payment', async (req, res) => {
       return res.status(400).json({ error: 'Payment system not available for online payments' });
     }
 
-    // IMPROVED CONFLICT CHECK
+    // Conflict check
     const appointmentDate = new Date(date);
     const endDate = new Date(appointmentDate.getTime() + duration * 60000);
 
@@ -181,7 +219,6 @@ router.post('/create-appointment-with-payment', async (req, res) => {
       barber,
       status: { $nin: ['rejected', 'cancelled'] },
       $or: [
-        // Case 1: Existing booking starts before and ends after new booking starts
         {
           date: { $lte: appointmentDate },
           $expr: {
@@ -191,7 +228,6 @@ router.post('/create-appointment-with-payment', async (req, res) => {
             ]
           }
         },
-        // Case 2: Existing booking starts during the new booking
         {
           date: {
             $gte: appointmentDate,
@@ -228,6 +264,29 @@ router.post('/create-appointment-with-payment', async (req, res) => {
 
     await appointment.save();
 
+    // Create Payment record if paid online
+    if (payOnline && paymentIntentId) {
+      const platformFee = (calculatedTotalPrice * PLATFORM_FEE_PERCENTAGE) / 100;
+      const barberAmount = calculatedTotalPrice - platformFee;
+
+      const payment = new Payment({
+        appointment: appointment._id,
+        barber,
+        customerEmail: email?.trim().toLowerCase(),
+        customerName: customerName?.trim(),
+        totalAmount: calculatedTotalPrice,
+        platformFee,
+        barberAmount,
+        stripePaymentIntentId: paymentIntentId,
+        status: 'succeeded',
+        transferStatus: 'pending',
+        paymentMethod: 'card'
+      });
+
+      await payment.save();
+      console.log('Payment record created:', payment._id);
+    }
+
     const populated = await Appointment.findById(appointment._id)
       .populate('barber', 'name')
       .populate('branch', 'name city address')
@@ -249,6 +308,7 @@ router.get('/', (req, res) => {
   res.json({ 
     message: 'Payments route active',
     stripeEnabled: !!stripe,
+    platformFee: `${PLATFORM_FEE_PERCENTAGE}%`,
     tip: stripe ? 'Ready for payments' : 'Add STRIPE_SECRET_KEY to enable payments'
   });
 });
