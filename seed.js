@@ -15,7 +15,7 @@ const femaleNames = ['Sarah', 'Emma', 'Aisha', 'Fatima', 'Zara', 'Nadia', 'Hira'
 
 mongoose.connect(process.env.MONGODB_URI)
   .then(async () => {
-    console.log('🌱 Starting Smart Seeding...');
+    console.log('Starting Smart Seeding...');
 
     // 1. BRANCHES
     const branchData = [
@@ -48,6 +48,7 @@ mongoose.connect(process.env.MONGODB_URI)
       { name: "Nail Care", duration: "30 minutes", price: "£20", gender: "female" }
     ];
  
+
     const allServices = [];
     for (const s of serviceData) {
       let service = await Service.findOne({ name: s.name });

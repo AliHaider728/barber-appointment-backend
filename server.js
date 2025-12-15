@@ -4,7 +4,6 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { v2 as cloudinary } from 'cloudinary';
 import passport from 'passport';
-
 // ROUTES
 import authRoutes from './routes/auth.js';
 import appointmentRoutes from './routes/appointments.js';
@@ -14,7 +13,8 @@ import serviceRoutes from './routes/services.js';
 import barberShiftRoutes from './routes/barberShifts.js';
 import paymentRoute from './routes/payments.js';
 import leaveRoutes from './routes/leaves.js'; 
-import adminRoutes from './routes/admins.js'
+import adminRoutes from './routes/admins.js';
+import webhookRoutes from './routes/webhooks.js'; 
 
 dotenv.config();
 
@@ -56,7 +56,7 @@ app.use(cors({
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
-      callback(null, true); // allow all for dev
+      callback(null, true);
     }
   },
   credentials: true,
@@ -64,11 +64,7 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ limit: '10mb', extended: true }));
-app.use('/uploads', express.static('uploads'));
-
-// MONGODB CONNECTION - FIXED FOR SERVERLESS
+// MONGODB CONNECTION -   FOR SERVERLESS
 let isConnected = false;
 
 async function connectToDatabase() {
@@ -84,7 +80,7 @@ async function connectToDatabase() {
     await mongoose.connect(process.env.MONGODB_URI, {
       serverSelectionTimeoutMS: 5000,
       socketTimeoutMS: 45000,
-      maxPoolSize: 1,  // Critical for serverless
+      maxPoolSize: 1,
       minPoolSize: 0,
     });
     
@@ -109,6 +105,15 @@ app.use(async (req, res, next) => {
   }
 });
 
+// IMPORTANT: Webhook route FIRST (before JSON parsing)
+// Stripe needs raw body for signature verification
+app.use('/api/webhooks', webhookRoutes);
+
+// NOW apply JSON parsing for other routes
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
+app.use('/uploads', express.static('uploads'));
+
 // HEALTH CHECK ENDPOINT
 app.get('/', async (req, res) => {
   res.json({
@@ -123,11 +128,12 @@ app.get('/', async (req, res) => {
       'POST /api/auth/google',
       'GET /api/barbers',
       'GET /api/branches',
-      'GET /api/services'
+      'GET /api/services',
+      'POST /api/webhooks/stripe'
     ]
   });
 });
-
+ 
 // ROUTES 
 app.use('/api/auth', authRoutes);
 app.use('/api/appointments', appointmentRoutes);

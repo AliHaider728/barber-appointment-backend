@@ -1,4 +1,3 @@
-// backend/routes/barbers.js
 import express from 'express';
 import Barber from '../models/Barber.js';
 import mongoose from 'mongoose';
@@ -195,6 +194,7 @@ router.put('/:id', async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 });
+
 
 // DELETE barber
 router.delete('/:id', async (req, res) => {
