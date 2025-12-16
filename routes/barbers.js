@@ -81,7 +81,7 @@ router.post('/', async (req, res) => {
 
     const populated = await Barber.findById(barber._id).populate('branch', 'name city');
 
-    console.log('✅ New Barber Created:', populated.name);
+    console.log('New Barber Created:', populated.name);
     res.status(201).json(populated);
 
   } catch (error) {
@@ -183,7 +183,7 @@ router.put('/:id', async (req, res) => {
     });
 
     const populated = await Barber.findById(updated._id).populate('branch', 'name city');
-    console.log('✅ Barber Updated:', populated.name);
+    console.log('Barber Updated:', populated.name);
     res.json(populated);
 
   } catch (error) {
@@ -209,7 +209,7 @@ router.delete('/:id', async (req, res) => {
     // Delete from MongoDB
     await Barber.deleteOne({ _id: req.params.id });
     
-    console.log('✅ Barber Deleted:', barber.name);
+    console.log('Barber Deleted:', barber.name);
     res.json({ success: true, message: 'Barber deleted successfully' });
   } catch (error) {
     console.error('Delete error:', error);
@@ -217,4 +217,4 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
-export default router;  
+export default router;   

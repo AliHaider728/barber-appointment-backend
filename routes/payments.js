@@ -1,4 +1,3 @@
-// backend/routes/payments.js
 import express from 'express';
 import Appointment from '../models/Appointment.js';
 import Payment from '../models/Payment.js';
@@ -300,6 +299,120 @@ router.post('/create-appointment-with-payment', async (req, res) => {
   } catch (error) {
     console.error('Create appointment error:', error.message);
     res.status(500).json({ error: 'Failed to create appointment', details: error.message });
+  }
+});
+
+// GET Stripe connect status for current barber
+router.get('/stripe/status', verifyBarber, async (req, res) => {
+  try {
+    const barber = await Barber.findById(req.barber.id);
+    if (!barber) {
+      return res.status(404).json({ message: 'Barber not found' });
+    }
+
+    let connected = false;
+    let chargesEnabled = false;
+    let payoutsEnabled = false;
+    let detailsSubmitted = false;
+
+    if (barber.stripeAccountId && stripe) {
+      const account = await stripe.accounts.retrieve(barber.stripeAccountId);
+      connected = true;
+      chargesEnabled = account.charges_enabled;
+      payoutsEnabled = account.payouts_enabled;
+      detailsSubmitted = account.details_submitted;
+    }
+
+    res.json({
+      connected,
+      chargesEnabled,
+      payoutsEnabled,
+      detailsSubmitted,
+      stripeAccountId: barber.stripeAccountId || null
+    });
+  } catch (error) {
+    console.error('Stripe status error:', error);
+    res.status(500).json({ message: 'Failed to get Stripe status' });
+  }
+});
+
+// GET payments for current barber
+router.get('/barber/me', verifyBarber, async (req, res) => {
+  try {
+    const payments = await Payment.find({ barber: req.barber.id })
+      .populate('appointment', 'customerName date totalPrice')
+      .sort({ createdAt: -1 });
+
+    // Calculate summary
+    const summary = {
+      totalEarnings: payments.reduce((sum, p) => sum + (p.barberAmount || 0), 0),
+      pendingAmount: payments.filter(p => p.transferStatus === 'pending').reduce((sum, p) => sum + (p.barberAmount || 0), 0),
+      transferredAmount: payments.filter(p => p.transferStatus === 'completed').reduce((sum, p) => sum + (p.barberAmount || 0), 0),
+      totalPayments: payments.length
+    };
+
+    res.json({ payments, summary });
+  } catch (error) {
+    console.error('Get payments error:', error);
+    res.status(500).json({ message: 'Failed to get payments' });
+  }
+});
+
+// STRIPE CONNECT/ONBOARD
+router.post('/stripe/connect', verifyBarber, async (req, res) => {
+  if (!stripe) {
+    return res.status(503).json({ error: 'Stripe not configured' });
+  }
+
+  try {
+    const barber = await Barber.findById(req.barber.id);
+    if (!barber) {
+      return res.status(404).json({ error: 'Barber not found' });
+    }
+
+    let accountId = barber.stripeAccountId;
+
+    if (!accountId) {
+      // Create new Connect account
+      const account = await stripe.accounts.create({
+        type: 'express',
+        country: 'GB',
+        email: barber.email,
+        business_type: 'individual',
+        individual: {
+          first_name: barber.name.split(' ')[0],
+          last_name: barber.name.split(' ').slice(1).join(' '),
+          email: barber.email,
+        },
+        business_profile: {
+          name: barber.name,
+          product_description: 'Barber services',
+        },
+        capabilities: {
+          card_payments: { requested: true },
+          transfers: { requested: true },
+        },
+      });
+
+      accountId = account.id;
+      barber.stripeAccountId = accountId;
+      await barber.save();
+    }
+
+    // Create account link for onboarding or refresh
+    const accountLink = await stripe.accountLinks.create({
+      account: accountId,
+      refresh_url: `${process.env.FRONTEND_URL}/barber-dashboard?refresh=stripe`,
+      return_url: `${process.env.FRONTEND_URL}/barber-dashboard?return=stripe`,
+      type: 'account_onboarding',
+      collect: 'eventually_due',
+    });
+
+    res.json({ onboardingUrl: accountLink.url });
+
+  } catch (error) {
+    console.error('Stripe connect error:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
