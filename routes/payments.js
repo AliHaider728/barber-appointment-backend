@@ -11,6 +11,7 @@ import jwt from 'jsonwebtoken';
 dotenv.config();
 const router = express.Router();
 
+// PLATFORM FEE PERCENTAGE (10% default, change karo agar chahiye)
 const PLATFORM_FEE_PERCENTAGE = 10;
 
 // Stripe initialization
@@ -22,12 +23,12 @@ if (process.env.STRIPE_SECRET_KEY) {
     stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
       apiVersion: '2023-10-16',
     });
-    console.log('  Stripe initialized successfully');
+    console.log('Stripe initialized successfully');
   } catch (err) {
-    console.error('  Stripe import failed:', err.message);
+    console.error('Stripe import failed:', err.message);
   }
 } else {
-  console.log('  STRIPE_SECRET_KEY not found');
+  console.log('STRIPE_SECRET_KEY not found - payments disabled (safe mode)');
 }
 
 // Middleware to verify barber token
@@ -39,7 +40,7 @@ const verifyBarber = (req, res, next) => {
       return res.status(401).json({ message: 'No token provided' });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'supersecretkey123456789');
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
     
     if (decoded.role !== 'barber') {
       return res.status(403).json({ message: 'Access denied - barber only' });
@@ -48,180 +49,32 @@ const verifyBarber = (req, res, next) => {
     req.barber = decoded;
     next();
   } catch (error) {
-    console.error('Token verification error:', error);
     res.status(401).json({ message: 'Invalid token' });
   }
 };
 
-// ==================== BARBER ROUTES ====================
-
-// GET all payments for logged-in barber
-router.get('/barber/me', verifyBarber, async (req, res) => {
+// GET bookings for logged-in barber
+router.get('/barber/me/bookings', verifyBarber, async (req, res) => {
   try {
-    const barberId = req.barber.barberId || req.barber.id;
+    const barberId = req.barber.id;
     
-    if (!barberId) {
-      return res.status(400).json({ message: 'Barber ID not found in token' });
-    }
+    const bookings = await Appointment.find({ barber: barberId })
+      .populate('branch', 'name city')
+      .populate('services.serviceRef', 'name price duration')
+      .sort({ date: -1 });
 
-    console.log('📋 Fetching payments for barber:', barberId);
-
-    const payments = await Payment.find({ barber: barberId })
-      .populate('appointment')
-      .sort({ createdAt: -1 });
-
-    console.log('  Found', payments.length, 'payments');
-
-    const summary = {
-      totalEarnings: payments
-        .filter(p => p.status === 'succeeded')
-        .reduce((sum, p) => sum + (p.barberAmount || 0), 0),
-      pendingAmount: payments
-        .filter(p => p.status === 'succeeded' && p.transferStatus === 'pending')
-        .reduce((sum, p) => sum + (p.barberAmount || 0), 0),
-      transferredAmount: payments
-        .filter(p => p.transferStatus === 'completed')
-        .reduce((sum, p) => sum + (p.barberAmount || 0), 0),
-      totalPayments: payments.filter(p => p.status === 'succeeded').length
-    };
-
-    res.json({ 
-      success: true,
-      payments,
-      summary
-    });
-
+    res.json(bookings);
   } catch (error) {
-    console.error('  Get barber payments error:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error('Get barber bookings error:', error);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
-// GET Stripe connection status for barber
-router.get('/stripe/status', verifyBarber, async (req, res) => {
-  try {
-    const barberId = req.barber.barberId || req.barber.id;
-    
-    console.log('🔍 Checking Stripe status for barber:', barberId);
-    
-    const barber = await Barber.findById(barberId);
-    if (!barber) {
-      return res.status(404).json({ message: 'Barber not found' });
-    }
-
-    const connected = !!barber.stripeAccountId;
-    console.log('  Stripe status:', connected ? 'Connected' : 'Not connected');
-
-    res.json({
-      connected,
-      accountId: barber.stripeAccountId || null
-    });
-
-  } catch (error) {
-    console.error('  Stripe status error:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
-});
-
-// CONNECT Stripe account for barber
-router.post('/stripe/connect', verifyBarber, async (req, res) => {
-  try {
-    if (!stripe) {
-      return res.status(503).json({ 
-        message: 'Stripe not configured',
-        error: 'STRIPE_SECRET_KEY missing in environment variables' 
-      });
-    }
-
-    const barberId = req.barber.barberId || req.barber.id;
-    
-    if (!barberId) {
-      return res.status(400).json({ message: 'Barber ID not found in token' });
-    }
-
-    console.log('🔗 Stripe connect request for barber:', barberId);
-    
-    const barber = await Barber.findById(barberId);
-    if (!barber) {
-      return res.status(404).json({ message: 'Barber not found' });
-    }
-
-    // If barber already has Stripe account, return dashboard link
-    if (barber.stripeAccountId) {
-      console.log('  Barber already has Stripe account:', barber.stripeAccountId);
-      
-      try {
-        const loginLink = await stripe.accounts.createLoginLink(barber.stripeAccountId);
-        return res.json({
-          connected: true,
-          loginUrl: loginLink.url
-        });
-      } catch (stripeError) {
-        console.error('  Failed to create login link:', stripeError.message);
-        // If login link fails, continue to create new onboarding link
-      }
-    }
-
-    console.log('🆕 Creating new Stripe Connect account');
-
-    // Create new Stripe Connect account
-    const account = await stripe.accounts.create({
-      type: 'express',
-      country: 'GB',
-      email: barber.email,
-      capabilities: {
-        transfers: { requested: true },
-      },
-      business_type: 'individual',
-      metadata: {
-        barberId: barber._id.toString(),
-        barberName: barber.name
-      }
-    });
-
-    console.log('  Stripe account created:', account.id);
-
-    // Save Stripe account ID
-    barber.stripeAccountId = account.id;
-    await barber.save();
-
-    console.log('  Stripe account ID saved to barber');
-
-    // Create onboarding link
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-    
-    const accountLink = await stripe.accountLinks.create({
-      account: account.id,
-      refresh_url: `${frontendUrl}/barber/dashboard`,
-      return_url: `${frontendUrl}/barber/dashboard`,
-      type: 'account_onboarding',
-    });
-
-    console.log('  Onboarding link created');
-
-    res.json({
-      connected: false,
-      onboardingUrl: accountLink.url,
-      accountId: account.id
-    });
-
-  } catch (error) {
-    console.error('  Stripe connect error:', error);
-    res.status(500).json({ 
-      message: 'Failed to connect Stripe',
-      error: error.message,
-      details: error.type || 'unknown_error'
-    });
-  }
-});
-
-// ==================== PAYMENT ROUTES ====================
-
-// CREATE PAYMENT INTENT
+// CREATE PAYMENT INTENT WITH SPLIT
 router.post('/create-payment-intent', async (req, res) => {
   if (!stripe) {
-    return res.status(503).json({ 
-      error: 'Payment gateway not configured' 
+    return res.status(400).json({ 
+      error: 'Payment gateway not configured yet. Contact admin.' 
     });
   }
 
@@ -232,27 +85,30 @@ router.post('/create-payment-intent', async (req, res) => {
       return res.status(400).json({ error: 'Invalid amount' });
     }
 
-    if (!barberId || !mongoose.Types.ObjectId.isValid(barberId)) {
-      return res.status(400).json({ error: 'Valid Barber ID required' });
+    if (!barberId) {
+      return res.status(400).json({ error: 'Barber ID required' });
     }
 
+    // Get barber details
     const barber = await Barber.findById(barberId);
     if (!barber) {
       return res.status(404).json({ error: 'Barber not found' });
     }
 
+    // Calculate platform fee and barber amount
     const platformFee = (totalPrice * PLATFORM_FEE_PERCENTAGE) / 100;
     const barberAmount = totalPrice - platformFee;
+
     const amountInCents = Math.round(totalPrice * 100);
+    const platformFeeInCents = Math.round(platformFee * 100);
 
-    console.log(`  Creating payment intent - Total: £${totalPrice}, Platform: £${platformFee}, Barber: £${barberAmount}`);
-
+    // Create payment intent
     const paymentIntentData = {
       amount: amountInCents,
       currency: 'gbp',
       receipt_email: customerEmail || undefined,
       metadata: {
-        customerName: customerName || 'Guest',
+        customerName: customerName || 'Anonymous',
         customerEmail: customerEmail || 'no-email@temp.com',
         barberId: barberId,
         barberName: barber.name,
@@ -261,9 +117,15 @@ router.post('/create-payment-intent', async (req, res) => {
       }
     };
 
-    const paymentIntent = await stripe.paymentIntents.create(paymentIntentData);
+    // If barber has Stripe Connect, set application fee
+    if (barber.stripeAccountId) {
+      paymentIntentData.application_fee_amount = platformFeeInCents;
+      paymentIntentData.transfer_data = {
+        destination: barber.stripeAccountId,
+      };
+    }
 
-    console.log('  Payment Intent created:', paymentIntent.id);
+    const paymentIntent = await stripe.paymentIntents.create(paymentIntentData);
 
     res.json({
       clientSecret: paymentIntent.client_secret,
@@ -271,9 +133,8 @@ router.post('/create-payment-intent', async (req, res) => {
       platformFee: platformFee.toFixed(2),
       barberAmount: barberAmount.toFixed(2)
     });
-
   } catch (error) {
-    console.error('  Payment intent error:', error);
+    console.error('Payment intent error:', error.message);
     res.status(500).json({ error: 'Payment failed', details: error.message });
   }
 });
@@ -295,45 +156,32 @@ router.post('/create-appointment-with-payment', async (req, res) => {
       payOnline = true
     } = req.body;
 
-    console.log('📝 Creating appointment with payment');
-
+    // Validation
     if (!customerName || !email || !phone || !date || !barber || !branch || !duration) {
-      return res.status(400).json({ 
-        error: 'Missing required fields',
-        message: 'All fields are required' 
-      });
+      return res.status(400).json({ message: 'All fields are required' });
     }
 
     if (!selectedServices || !Array.isArray(selectedServices) || selectedServices.length === 0) {
-      return res.status(400).json({ 
-        error: 'No services selected',
-        message: 'At least one service is required' 
-      });
+      return res.status(400).json({ message: 'At least one service is required' });
     }
 
+    // Validate ObjectIds
     if (!mongoose.Types.ObjectId.isValid(barber) || !mongoose.Types.ObjectId.isValid(branch)) {
-      return res.status(400).json({ 
-        error: 'Invalid IDs',
-        message: 'Invalid barber or branch ID' 
-      });
+      return res.status(400).json({ message: 'Invalid barber or branch ID' });
     }
 
+    // Validate service IDs
     const serviceIds = selectedServices.map(s => s.serviceRef).filter(Boolean);
     if (serviceIds.some(id => !mongoose.Types.ObjectId.isValid(id))) {
-      return res.status(400).json({ 
-        error: 'Invalid service IDs',
-        message: 'One or more service IDs are invalid' 
-      });
+      return res.status(400).json({ message: 'Invalid service ID' });
     }
 
     const services = await Service.find({ _id: { $in: serviceIds } });
     if (services.length !== serviceIds.length) {
-      return res.status(404).json({ 
-        error: 'Services not found',
-        message: 'One or more services not found' 
-      });
+      return res.status(400).json({ message: 'One or more services not found' });
     }
 
+    // Enrich services with full data
     const enrichedServices = selectedServices.map(sel => {
       const service = services.find(s => s._id.toString() === sel.serviceRef);
       return {
@@ -344,28 +192,26 @@ router.post('/create-appointment-with-payment', async (req, res) => {
       };
     });
 
+    // Calculate total price if not provided
     const calculatedTotalPrice = totalPrice || enrichedServices.reduce((sum, s) => {
       return sum + parseFloat(s.price.replace('£', '').trim());
     }, 0);
 
+    // Verify payment if payOnline
     if (payOnline && paymentIntentId && stripe) {
       try {
         const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
         if (paymentIntent.status !== 'succeeded') {
-          return res.status(400).json({ 
-            error: 'Payment incomplete',
-            message: 'Payment not completed yet' 
-          });
+          return res.status(400).json({ error: 'Payment not completed yet' });
         }
-        console.log('  Payment verified:', paymentIntentId);
       } catch (err) {
-        return res.status(400).json({ 
-          error: 'Invalid payment',
-          message: 'Invalid payment intent ID' 
-        });
+        return res.status(400).json({ error: 'Invalid payment intent' });
       }
+    } else if (payOnline && !stripe) {
+      return res.status(400).json({ error: 'Payment system not available for online payments' });
     }
 
+    // Conflict check
     const appointmentDate = new Date(date);
     const endDate = new Date(appointmentDate.getTime() + duration * 60000);
 
@@ -393,11 +239,12 @@ router.post('/create-appointment-with-payment', async (req, res) => {
 
     if (conflictingBookings.length > 0) {
       return res.status(409).json({ 
-        error: 'Time slot conflict',
-        message: 'This time slot is no longer available'
+        error: 'Time slot conflict detected',
+        message: 'This time slot is no longer available. Please select another time.'
       });
     }
     
+    // Create appointment
     const appointment = new Appointment({
       customerName: customerName?.trim() || 'Guest',
       email: email?.trim().toLowerCase() || 'no-email@temp.com',
@@ -416,38 +263,32 @@ router.post('/create-appointment-with-payment', async (req, res) => {
     });
 
     await appointment.save();
-    console.log('  Appointment created:', appointment._id);
 
+    // Create Payment record if paid online
     if (payOnline && paymentIntentId) {
       const platformFee = (calculatedTotalPrice * PLATFORM_FEE_PERCENTAGE) / 100;
       const barberAmount = calculatedTotalPrice - platformFee;
 
-      const existingPayment = await Payment.findOne({ 
-        stripePaymentIntentId: paymentIntentId 
+      const payment = new Payment({
+        appointment: appointment._id,
+        barber,
+        customerEmail: email?.trim().toLowerCase(),
+        customerName: customerName?.trim(),
+        totalAmount: calculatedTotalPrice,
+        platformFee,
+        barberAmount,
+        stripePaymentIntentId: paymentIntentId,
+        status: 'succeeded',
+        transferStatus: 'pending',
+        paymentMethod: 'card'
       });
 
-      if (!existingPayment) {
-        const payment = new Payment({
-          appointment: appointment._id,
-          barber,
-          customerEmail: email?.trim().toLowerCase(),
-          customerName: customerName?.trim(),
-          totalAmount: calculatedTotalPrice,
-          platformFee,
-          barberAmount,
-          stripePaymentIntentId: paymentIntentId,
-          status: 'succeeded',
-          transferStatus: 'pending',
-          paymentMethod: 'card'
-        });
-
-        await payment.save();
-        console.log('  Payment record created:', payment._id);
-      }
+      await payment.save();
+      console.log('Payment record created:', payment._id);
     }
 
     const populated = await Appointment.findById(appointment._id)
-      .populate('barber', 'name email')
+      .populate('barber', 'name')
       .populate('branch', 'name city address')
       .populate('services.serviceRef', 'name price duration');
 
@@ -457,30 +298,18 @@ router.post('/create-appointment-with-payment', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('  Create appointment error:', error);
-    res.status(500).json({ 
-      error: 'Booking failed', 
-      message: error.message 
-    });
+    console.error('Create appointment error:', error.message);
+    res.status(500).json({ error: 'Failed to create appointment', details: error.message });
   }
 });
 
-// Health check
+// Health check route
 router.get('/', (req, res) => {
   res.json({ 
-    message: 'Payments API Active',
+    message: 'Payments route active',
     stripeEnabled: !!stripe,
     platformFee: `${PLATFORM_FEE_PERCENTAGE}%`,
-    webhookSecret: !!process.env.STRIPE_WEBHOOK_SECRET,
-    status: stripe ? '  Ready' : '  Add STRIPE_SECRET_KEY',
-    routes: [
-      'GET /payments/',
-      'GET /payments/barber/me',
-      'GET /payments/stripe/status',
-      'POST /payments/stripe/connect',
-      'POST /payments/create-payment-intent',
-      'POST /payments/create-appointment-with-payment'
-    ]
+    tip: stripe ? 'Ready for payments' : 'Add STRIPE_SECRET_KEY to enable payments'
   });
 });
 
