@@ -1,11 +1,29 @@
-// app.js or index.js
 import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { v2 as cloudinary } from 'cloudinary';
 import passport from 'passport';
+//   LOAD ENV FIRST (VERY IMPORTANT)
+dotenv.config();
+
+//   EMAIL ENV CHECK (FIX)   
+console.log('  Checking Email Environment Variables...');
+if (!process.env.EMAIL_USER || !process.env.EMAIL_APP_PASSWORD) {
+  console.error('  EMAIL CONFIG MISSING');
+  console.error('EMAIL_USER:', process.env.EMAIL_USER);
+  console.error(
+    'EMAIL_APP_PASSWORD:',
+    process.env.EMAIL_APP_PASSWORD ? 'SET' : 'MISSING'
+  );
+} else {
+  console.log('  EMAIL CONFIG LOADED');
+  console.log('EMAIL_USER:', process.env.EMAIL_USER);
+}
+
+ 
 // ROUTES
+ 
 import authRoutes from './routes/auth.js';
 import appointmentRoutes from './routes/appointments.js';
 import barberRoutes from "./routes/barbers.js";
@@ -18,34 +36,46 @@ import adminRoutes from './routes/admins.js';
 import webhookRoutes from './routes/webhooks.js'; 
 import otpRoutes from './routes/otpRoutes.js';
 
-dotenv.config();
-
+ 
 // CLOUDINARY
+ 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-console.log('Cloudinary config loaded:', {
+console.log('☁️ Cloudinary Loaded:', {
   cloud: process.env.CLOUDINARY_CLOUD_NAME,
   key: process.env.CLOUDINARY_API_KEY?.slice(0, 6) + '...',
 });
 
+ 
 // EXPRESS APP
+ 
 const app = express();
 
 // Passport init
 app.use(passport.initialize());
 
-// Set CSP and COOP headers
+ 
+// SECURITY HEADERS
+ 
 app.use((req, res, next) => {
-  res.setHeader('Content-Security-Policy', "frame-ancestors 'self' https://accounts.google.com");
-  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
+  res.setHeader(
+    'Content-Security-Policy',
+    "frame-ancestors 'self' https://accounts.google.com"
+  );
+  res.setHeader(
+    'Cross-Origin-Opener-Policy',
+    'same-origin-allow-popups'
+  );
   next();
 });
 
-// CORS 
+ 
+// CORS
+ 
 const allowedOrigins = [
   'http://localhost:5173',
   'https://barber-appointment-six.vercel.app',
@@ -63,21 +93,23 @@ app.use(cors({
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
-// MONGODB CONNECTION -   FOR SERVERLESS
+ 
+// MONGODB CONNECTION (SERVERLESS SAFE)
+ 
 let isConnected = false;
 
 async function connectToDatabase() {
   if (isConnected && mongoose.connection.readyState === 1) {
-    console.log('Using existing database connection');
+    console.log(' Using existing database connection');
     return mongoose.connection;
   }
 
-  console.log('Creating new database connection');
+  console.log('  Creating new database connection');
   mongoose.set('strictQuery', false);
-  
+
   try {
     await mongoose.connect(process.env.MONGODB_URI, {
       serverSelectionTimeoutMS: 5000,
@@ -85,58 +117,56 @@ async function connectToDatabase() {
       maxPoolSize: 1,
       minPoolSize: 0,
     });
-    
+
     isConnected = true;
-    console.log('MongoDB Connected Successfully');
+    console.log('  MongoDB Connected');
     return mongoose.connection;
   } catch (err) {
-    console.error('MongoDB Connection Error:', err);
+    console.error('  MongoDB Connection Error:', err);
     isConnected = false;
     throw err;
   }
 }
 
-// DATABASE CONNECTION MIDDLEWARE
+// DB Middleware
 app.use(async (req, res, next) => {
   try {
     await connectToDatabase();
     next();
   } catch (error) {
-    console.error('DB connection failed:', error);
     res.status(500).json({ error: 'Database connection failed' });
   }
 });
 
-// IMPORTANT: Webhook route FIRST (before JSON parsing)
-// Stripe needs raw body for signature verification
+ 
+// STRIPE WEBHOOK (RAW BODY)
+ 
 app.use('/api/webhooks', webhookRoutes);
 
-// NOW apply JSON parsing for other routes
+ 
+// BODY PARSERS
+ 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 app.use('/uploads', express.static('uploads'));
 
-// HEALTH CHECK ENDPOINT
-app.get('/', async (req, res) => {
+ 
+// HEALTH CHECK
+ 
+app.get('/', (req, res) => {
   res.json({
     status: 'OK',
     message: 'API Running',
+    emailConfigured: !!(
+      process.env.EMAIL_USER && process.env.EMAIL_APP_PASSWORD
+    ),
     timestamp: new Date().toISOString(),
-    dbStatus: mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected',
-    routes: [
-      'GET /api/auth',
-      'POST /api/auth/login',
-      'POST /api/auth/signup',
-      'POST /api/auth/google',
-      'GET /api/barbers',
-      'GET /api/branches',
-      'GET /api/services',
-      'POST /api/webhooks/stripe'
-    ]
   });
 });
+
  
-// ROUTES 
+// ROUTES
+ 
 app.use('/api/auth', authRoutes);
 app.use('/api/appointments', appointmentRoutes);
 app.use('/api/barbers', barberRoutes);
@@ -148,22 +178,27 @@ app.use('/api/leaves', leaveRoutes);
 app.use('/api/admins', adminRoutes);
 app.use('/api/otp', otpRoutes);
 
-// 404 PAGE
+ 
+// 404 HANDLER
+ 
 app.use('*', (req, res) => {
-  console.log('404 - Route not found:', req.originalUrl);
-  res.status(404).json({ 
+  res.status(404).json({
     error: 'Route not found',
     path: req.originalUrl,
-    method: req.method
   });
 });
 
+ 
 // GLOBAL ERROR HANDLER
+ 
 app.use((err, req, res, next) => {
-  console.error('ERROR:', err);
-  res.status(500).json({ error: err.message || 'Server Error' });
+  console.error('  SERVER ERROR:', err);
+  res.status(500).json({
+    error: err.message || 'Server Error',
+  });
 });
 
  
-// VERCEL SERVERLESS EXPORT
+// EXPORT FOR VERCEL
+ 
 export default app;
