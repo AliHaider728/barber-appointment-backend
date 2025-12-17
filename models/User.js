@@ -46,6 +46,10 @@ const userSchema = new mongoose.Schema({
   city: {
     type: String,
     default: null
+  },
+  emailVerified: {
+    type: Boolean,
+    default: false
   }
 }, { timestamps: true });
 

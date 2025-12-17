@@ -4,11 +4,29 @@ import bcrypt from 'bcryptjs';
 import User from '../models/User.js';
 import Barber from '../models/Barber.js';
 import Admin from '../models/Admins.js';
+import nodemailer from 'nodemailer';
 
 const router = express.Router();
 
 // JWT Secret
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey123456789';
+
+// OTP Storage (production mein Redis ya Database use karein)
+const otpStore = new Map();
+
+// Nodemailer Setup
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_APP_PASSWORD
+  }
+});
+
+// Generate 6-digit OTP
+const generateOTP = () => {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+};
 
 // MIDDLEWARE: Verify JWT Token
 const verifyToken = async (req, res, next) => {
@@ -37,6 +55,9 @@ router.get('/', (req, res) => {
       'POST /api/auth/login',
       'POST /api/auth/signup', 
       'POST /api/auth/google',
+      'POST /api/auth/send-otp',
+      'POST /api/auth/verify-otp',
+      'POST /api/auth/resend-otp',
       'GET /api/auth/me',
       'GET /api/auth/verify-admin',
       'GET /api/auth/verify-barber',
@@ -80,6 +101,235 @@ const getUserWithRole = async (email) => {
 
   return null;
 };
+
+//  OTP ROUTES 
+
+// ROUTE: Send OTP
+router.post('/send-otp', async (req, res) => {
+  try {
+    const { email, fullName } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ success: false, message: 'Email required' });
+    }
+
+    // Generate OTP
+    const otp = generateOTP();
+    const expiryTime = Date.now() + 10 * 60 * 1000; // 10 minutes
+
+    // Store OTP
+    otpStore.set(email, {
+      otp,
+      expiryTime,
+      fullName: fullName || 'User',
+      verified: false
+    });
+
+    console.log(`[OTP] Generated for ${email}: ${otp}`);
+
+    // Send Email
+    const mailOptions = {
+      from: `"Barber Appointment" <${process.env.EMAIL_USER}>`,
+      to: email,
+      subject: '  Email Verification - OTP Code',
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <style>
+            body { font-family: Arial, sans-serif; background-color: #f4f4f4; margin: 0; padding: 0; }
+            .container { max-width: 600px; margin: 30px auto; background-color: #ffffff; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+            .header { background: linear-gradient(135deg, #D4AF37 0%, #F4D03F 100%); padding: 30px; text-align: center; }
+            .header h1 { color: #000; margin: 0; font-size: 28px; }
+            .content { padding: 40px 30px; text-align: center; }
+            .otp-box { background-color: #f8f9fa; border: 2px dashed #D4AF37; border-radius: 8px; padding: 20px; margin: 30px 0; }
+            .otp-code { font-size: 36px; font-weight: bold; color: #D4AF37; letter-spacing: 8px; margin: 10px 0; }
+            .warning { color: #dc3545; font-size: 14px; margin-top: 20px; }
+            .footer { background-color: #f8f9fa; padding: 20px; text-align: center; font-size: 12px; color: #6c757d; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>  Email Verification</h1>
+            </div>
+            <div class="content">
+              <h2>Hello ${fullName || 'User'}!  </h2>
+              <p>Thank you for signing up with Barber Appointment System.</p>
+              <p>Your One-Time Password (OTP) for email verification is:</p>
+              
+              <div class="otp-box">
+                <div class="otp-code">${otp}</div>
+              </div>
+              
+              <p>Please enter this code to verify your email address.</p>
+              <p class="warning">  This OTP will expire in 10 minutes.</p>
+              <p style="font-size: 14px; color: #6c757d; margin-top: 30px;">
+                If you didn't request this code, please ignore this email.
+              </p>
+            </div>
+            <div class="footer">
+              <p>Powered by TecnoSphere  </p>
+              <p>© 2025 Barber Appointment System. All rights reserved.</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `
+    };
+
+    await transporter.sendMail(mailOptions);
+    console.log(`[OTP] Email sent to ${email}`);
+
+    res.json({
+      success: true,
+      message: 'OTP sent successfully to your email'
+    });
+
+  } catch (error) {
+    console.error('[OTP] Send error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Failed to send OTP: ' + error.message 
+    });
+  }
+});
+
+// ROUTE: Verify OTP
+router.post('/verify-otp', async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+
+    if (!email || !otp) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Email and OTP required' 
+      });
+    }
+
+    const storedData = otpStore.get(email);
+
+    if (!storedData) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'No OTP found. Please request a new one.' 
+      });
+    }
+
+    // Check expiry
+    if (Date.now() > storedData.expiryTime) {
+      otpStore.delete(email);
+      return res.status(400).json({ 
+        success: false,
+        message: 'OTP has expired. Please request a new one.' 
+      });
+    }
+
+    // Verify OTP
+    if (storedData.otp !== otp.toString()) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Invalid OTP. Please try again.' 
+      });
+    }
+
+    // Mark as verified
+    storedData.verified = true;
+    otpStore.set(email, storedData);
+
+    console.log(`[OTP] Verified successfully for ${email}`);
+
+    res.json({
+      success: true,
+      message: 'Email verified successfully! You can now login.'
+    });
+
+  } catch (error) {
+    console.error('[OTP] Verify error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Verification failed: ' + error.message 
+    });
+  }
+});
+
+// ROUTE: Resend OTP
+router.post('/resend-otp', async (req, res) => {
+  try {
+    const { email, fullName } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ success: false, message: 'Email required' });
+    }
+
+    otpStore.delete(email);
+
+    const otp = generateOTP();
+    const expiryTime = Date.now() + 10 * 60 * 1000;
+
+    otpStore.set(email, {
+      otp,
+      expiryTime,
+      fullName: fullName || 'User',
+      verified: false
+    });
+
+    console.log(`[OTP] Resent for ${email}: ${otp}`);
+
+    const mailOptions = {
+      from: `"Barber Appointment" <${process.env.EMAIL_USER}>`,
+      to: email,
+      subject: '  New OTP Code',
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <style>
+            body { font-family: Arial, sans-serif; background-color: #f4f4f4; margin: 0; padding: 0; }
+            .container { max-width: 600px; margin: 30px auto; background-color: #ffffff; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+            .header { background: linear-gradient(135deg, #D4AF37 0%, #F4D03F 100%); padding: 30px; text-align: center; }
+            .header h1 { color: #000; margin: 0; font-size: 28px; }
+            .content { padding: 40px 30px; text-align: center; }
+            .otp-box { background-color: #f8f9fa; border: 2px dashed #D4AF37; border-radius: 8px; padding: 20px; margin: 30px 0; }
+            .otp-code { font-size: 36px; font-weight: bold; color: #D4AF37; letter-spacing: 8px; margin: 10px 0; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>  New OTP Code</h1>
+            </div>
+            <div class="content">
+              <h2>Hello ${fullName || 'User'}!</h2>
+              <p>Your new OTP code is:</p>
+              <div class="otp-box">
+                <div class="otp-code">${otp}</div>
+              </div>
+              <p>  This OTP will expire in 10 minutes.</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `
+    };
+
+    await transporter.sendMail(mailOptions);
+
+    res.json({
+      success: true,
+      message: 'New OTP sent successfully'
+    });
+
+  } catch (error) {
+    console.error('[OTP] Resend error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Failed to resend OTP: ' + error.message 
+    });
+  }
+});
+
+//  AUTH ROUTES 
 
 // ROUTE: Email/Password Login
 router.post('/login', async (req, res) => {
@@ -148,13 +398,22 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// ROUTE: Email/Password Signup
+// ROUTE: Email/Password Signup (WITH OTP CHECK)
 router.post('/signup', async (req, res) => {
   try {
     const { email, password, fullName = 'New User' } = req.body;
 
     if (!email || !password) {
       return res.status(400).json({ message: 'Email and password required' });
+    }
+
+    // Check if email is verified
+    const otpData = otpStore.get(email);
+    if (!otpData || !otpData.verified) {
+      return res.status(400).json({ 
+        message: 'Please verify your email with OTP first',
+        requiresOTP: true
+      });
     }
 
     const existing = await getUserWithRole(email);
@@ -168,8 +427,12 @@ router.post('/signup', async (req, res) => {
       email, 
       password: hashedPassword, 
       fullName,
-      role: 'user'
+      role: 'user',
+      emailVerified: true
     });
+
+    // Clear OTP after successful signup
+    otpStore.delete(email);
 
     const jwtToken = jwt.sign(
       { 
@@ -230,7 +493,8 @@ router.post('/google', async (req, res) => {
         googleId: googleId,
         fullName: name,
         profileImage: picture,
-        role: 'user'
+        role: 'user',
+        emailVerified: true
       });
 
       userData = {
@@ -242,7 +506,8 @@ router.post('/google', async (req, res) => {
     } else if (userData.role === 'user' && !userData.user.googleId) {
       await User.findByIdAndUpdate(userData.userId, {
         googleId: googleId,
-        profileImage: picture
+        profileImage: picture,
+        emailVerified: true
       });
     }
 
