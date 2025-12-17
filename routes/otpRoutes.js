@@ -1,12 +1,15 @@
 import express from 'express';
 import nodemailer from 'nodemailer';
+import dotenv from 'dotenv';
 
+
+dotenv.config();
 const router = express.Router();
 
 // In-memory OTP storage (production mein Redis/Database use karein)
 const otpStore = new Map();
 
-// ✅ FIXED: Consistent environment variable name
+//Consistent environment variable name
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
@@ -15,14 +18,14 @@ const transporter = nodemailer.createTransport({
   }
 });
 
-// ✅ Verify email configuration on startup
+//   Verify email configuration on startup
 transporter.verify(function(error, success) {
   if (error) {
-    console.error('❌ [EMAIL] Configuration error:', error.message);
-    console.error('❌ [EMAIL] Check your EMAIL_USER and EMAIL_APP_PASSWORD in .env file');
+    console.error('  [EMAIL] Configuration error:', error.message);
+    console.error('  [EMAIL] Check your EMAIL_USER and EMAIL_APP_PASSWORD in .env file');
   } else {
-    console.log('✅ [EMAIL] Nodemailer is ready to send emails');
-    console.log(`✅ [EMAIL] Using: ${process.env.EMAIL_USER}`);
+    console.log('  [EMAIL] Nodemailer is ready to send emails');
+    console.log(`  [EMAIL] Using: ${process.env.EMAIL_USER}`);
   }
 });
 
@@ -31,9 +34,9 @@ const generateOTP = () => {
   return Math.floor(100000 + Math.random() * 900000).toString();
 };
 
-// ============================================
+ 
 // ROUTE: Send OTP to Email
-// ============================================
+ 
 router.post('/send-otp', async (req, res) => {
   try {
     const { email, fullName } = req.body;
@@ -47,9 +50,9 @@ router.post('/send-otp', async (req, res) => {
       });
     }
 
-    // ✅ Check if email credentials are configured
+    //   Check if email credentials are configured
     if (!process.env.EMAIL_USER || !process.env.EMAIL_APP_PASSWORD) {
-      console.error('❌ [OTP] Email credentials not configured in environment variables');
+      console.error('  [OTP] Email credentials not configured in environment variables');
       return res.status(500).json({ 
         success: false,
         message: 'Email service not configured. Please contact administrator.' 
@@ -124,7 +127,7 @@ router.post('/send-otp', async (req, res) => {
     // Send email
     await transporter.sendMail(mailOptions);
 
-    console.log(`✅ [OTP] Email sent successfully to ${email}`);
+    console.log(`  [OTP] Email sent successfully to ${email}`);
 
     res.json({
       success: true,
@@ -132,7 +135,7 @@ router.post('/send-otp', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ [OTP] Send error:', error);
+    console.error('  [OTP] Send error:', error);
     res.status(500).json({ 
       success: false,
       message: 'Failed to send OTP: ' + error.message 
@@ -140,9 +143,9 @@ router.post('/send-otp', async (req, res) => {
   }
 });
 
-// ============================================
+ 
 // ROUTE: Verify OTP
-// ============================================
+ 
 router.post('/verify-otp', async (req, res) => {
   try {
     const { email, otp } = req.body;
@@ -159,7 +162,7 @@ router.post('/verify-otp', async (req, res) => {
     const storedData = otpStore.get(email);
 
     if (!storedData) {
-      console.log(`❌ [OTP] No OTP found for ${email}`);
+      console.log(`  [OTP] No OTP found for ${email}`);
       return res.status(400).json({ 
         success: false,
         message: 'No OTP found for this email. Please request a new one.' 
@@ -169,7 +172,7 @@ router.post('/verify-otp', async (req, res) => {
     // Check if OTP expired
     if (Date.now() > storedData.expiryTime) {
       otpStore.delete(email);
-      console.log(`❌ [OTP] Expired for ${email}`);
+      console.log(`  [OTP] Expired for ${email}`);
       return res.status(400).json({ 
         success: false,
         message: 'OTP has expired. Please request a new one.' 
@@ -178,7 +181,7 @@ router.post('/verify-otp', async (req, res) => {
 
     // Verify OTP
     if (storedData.otp !== otp.toString()) {
-      console.log(`❌ [OTP] Invalid OTP for ${email}`);
+      console.log(`  [OTP] Invalid OTP for ${email}`);
       return res.status(400).json({ 
         success: false,
         message: 'Invalid OTP. Please try again.' 
@@ -189,7 +192,7 @@ router.post('/verify-otp', async (req, res) => {
     storedData.verified = true;
     otpStore.set(email, storedData);
 
-    console.log(`✅ [OTP] Verified successfully for ${email}`);
+    console.log(`  [OTP] Verified successfully for ${email}`);
 
     res.json({
       success: true,
@@ -197,7 +200,7 @@ router.post('/verify-otp', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ [OTP] Verify error:', error);
+    console.error('  [OTP] Verify error:', error);
     res.status(500).json({ 
       success: false,
       message: 'Verification failed: ' + error.message 
@@ -205,9 +208,9 @@ router.post('/verify-otp', async (req, res) => {
   }
 });
 
-// ============================================
+ 
 // ROUTE: Resend OTP
-// ============================================
+ 
 router.post('/resend-otp', async (req, res) => {
   try {
     const { email, fullName } = req.body;
@@ -223,7 +226,7 @@ router.post('/resend-otp', async (req, res) => {
 
     // Check if email credentials are configured
     if (!process.env.EMAIL_USER || !process.env.EMAIL_APP_PASSWORD) {
-      console.error('❌ [OTP] Email credentials not configured');
+      console.error('  [OTP] Email credentials not configured');
       return res.status(500).json({ 
         success: false,
         message: 'Email service not configured. Please contact administrator.' 
@@ -285,7 +288,7 @@ router.post('/resend-otp', async (req, res) => {
 
     await transporter.sendMail(mailOptions);
 
-    console.log(`✅ [OTP] Resent successfully to ${email}`);
+    console.log(`  [OTP] Resent successfully to ${email}`);
 
     res.json({
       success: true,
@@ -293,7 +296,7 @@ router.post('/resend-otp', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ [OTP] Resend error:', error);
+    console.error('  [OTP] Resend error:', error);
     res.status(500).json({ 
       success: false,
       message: 'Failed to resend OTP: ' + error.message 
@@ -301,9 +304,9 @@ router.post('/resend-otp', async (req, res) => {
   }
 });
 
-// ============================================
+ 
 // Helper Functions (for auth.js to import)
-// ============================================
+ 
 
 // Check if email is verified
 export const isEmailVerified = (email) => {
