@@ -14,12 +14,21 @@ const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey123456789';
 // OTP Storage (production mein Redis ya Database use karein)
 const otpStore = new Map();
 
-// Nodemailer Setup
+// ✅ FIXED: Consistent environment variable name
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
     user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_APP_PASSWORD
+    pass: process.env.EMAIL_APP_PASSWORD  // Changed from MAIL_APP_PASSWORD
+  }
+});
+
+// ✅ Test transporter on startup
+transporter.verify(function(error, success) {
+  if (error) {
+    console.error('  [EMAIL] Transporter verification failed:', error);
+  } else {
+    console.log('✅ [EMAIL] Server is ready to send emails');
   }
 });
 
@@ -62,7 +71,8 @@ router.get('/', (req, res) => {
       'GET /api/auth/verify-admin',
       'GET /api/auth/verify-barber',
       'GET /api/auth/verify-user'
-    ]
+    ],
+    emailConfigured: !!process.env.EMAIL_USER && !!process.env.EMAIL_APP_PASSWORD
   });
 });
 
@@ -102,15 +112,28 @@ const getUserWithRole = async (email) => {
   return null;
 };
 
-//  OTP ROUTES 
+ 
+// 📧 OTP ROUTES 
+ 
 
 // ROUTE: Send OTP
 router.post('/send-otp', async (req, res) => {
   try {
     const { email, fullName } = req.body;
 
+    console.log('[OTP] Request received:', { email, fullName });
+
     if (!email) {
       return res.status(400).json({ success: false, message: 'Email required' });
+    }
+
+    // ✅ Check if email credentials are configured
+    if (!process.env.EMAIL_USER || !process.env.EMAIL_APP_PASSWORD) {
+      console.error('  [OTP] Email credentials not configured');
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Email service not configured. Please contact administrator.' 
+      });
     }
 
     // Generate OTP
@@ -154,7 +177,7 @@ router.post('/send-otp', async (req, res) => {
               <h1>  Email Verification</h1>
             </div>
             <div class="content">
-              <h2>Hello ${fullName || 'User'}!  </h2>
+              <h2>Hello ${fullName || 'User'}! 👋</h2>
               <p>Thank you for signing up with Barber Appointment System.</p>
               <p>Your One-Time Password (OTP) for email verification is:</p>
               
@@ -169,7 +192,7 @@ router.post('/send-otp', async (req, res) => {
               </p>
             </div>
             <div class="footer">
-              <p>Powered by TecnoSphere  </p>
+              <p>Powered by TecnoSphere ✨</p>
               <p>© 2025 Barber Appointment System. All rights reserved.</p>
             </div>
           </div>
@@ -179,7 +202,7 @@ router.post('/send-otp', async (req, res) => {
     };
 
     await transporter.sendMail(mailOptions);
-    console.log(`[OTP] Email sent to ${email}`);
+    console.log(`✅ [OTP] Email sent successfully to ${email}`);
 
     res.json({
       success: true,
@@ -187,7 +210,7 @@ router.post('/send-otp', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('[OTP] Send error:', error);
+    console.error('  [OTP] Send error:', error);
     res.status(500).json({ 
       success: false,
       message: 'Failed to send OTP: ' + error.message 
@@ -200,6 +223,8 @@ router.post('/verify-otp', async (req, res) => {
   try {
     const { email, otp } = req.body;
 
+    console.log('[OTP] Verify request:', { email, otp: otp ? '******' : 'missing' });
+
     if (!email || !otp) {
       return res.status(400).json({ 
         success: false,
@@ -210,6 +235,7 @@ router.post('/verify-otp', async (req, res) => {
     const storedData = otpStore.get(email);
 
     if (!storedData) {
+      console.log(`  [OTP] No OTP found for ${email}`);
       return res.status(400).json({ 
         success: false,
         message: 'No OTP found. Please request a new one.' 
@@ -219,6 +245,7 @@ router.post('/verify-otp', async (req, res) => {
     // Check expiry
     if (Date.now() > storedData.expiryTime) {
       otpStore.delete(email);
+      console.log(`  [OTP] Expired for ${email}`);
       return res.status(400).json({ 
         success: false,
         message: 'OTP has expired. Please request a new one.' 
@@ -227,6 +254,7 @@ router.post('/verify-otp', async (req, res) => {
 
     // Verify OTP
     if (storedData.otp !== otp.toString()) {
+      console.log(`  [OTP] Invalid OTP for ${email}`);
       return res.status(400).json({ 
         success: false,
         message: 'Invalid OTP. Please try again.' 
@@ -237,15 +265,15 @@ router.post('/verify-otp', async (req, res) => {
     storedData.verified = true;
     otpStore.set(email, storedData);
 
-    console.log(`[OTP] Verified successfully for ${email}`);
+    console.log(`✅ [OTP] Verified successfully for ${email}`);
 
     res.json({
       success: true,
-      message: 'Email verified successfully! You can now login.'
+      message: 'Email verified successfully! You can now complete signup.'
     });
 
   } catch (error) {
-    console.error('[OTP] Verify error:', error);
+    console.error('  [OTP] Verify error:', error);
     res.status(500).json({ 
       success: false,
       message: 'Verification failed: ' + error.message 
@@ -258,8 +286,19 @@ router.post('/resend-otp', async (req, res) => {
   try {
     const { email, fullName } = req.body;
 
+    console.log('[OTP] Resend request:', { email });
+
     if (!email) {
       return res.status(400).json({ success: false, message: 'Email required' });
+    }
+
+    // Check if email credentials are configured
+    if (!process.env.EMAIL_USER || !process.env.EMAIL_APP_PASSWORD) {
+      console.error('  [OTP] Email credentials not configured');
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Email service not configured. Please contact administrator.' 
+      });
     }
 
     otpStore.delete(email);
@@ -274,7 +313,7 @@ router.post('/resend-otp', async (req, res) => {
       verified: false
     });
 
-    console.log(`[OTP] Resent for ${email}: ${otp}`);
+    console.log(`[OTP] New OTP generated for ${email}: ${otp}`);
 
     const mailOptions = {
       from: `"Barber Appointment" <${process.env.EMAIL_USER}>`,
@@ -292,7 +331,7 @@ router.post('/resend-otp', async (req, res) => {
             .content { padding: 40px 30px; text-align: center; }
             .otp-box { background-color: #f8f9fa; border: 2px dashed #D4AF37; border-radius: 8px; padding: 20px; margin: 30px 0; }
             .otp-code { font-size: 36px; font-weight: bold; color: #D4AF37; letter-spacing: 8px; margin: 10px 0; }
-          </style>
+          </style> 
         </head>
         <body>
           <div class="container">
@@ -314,6 +353,7 @@ router.post('/resend-otp', async (req, res) => {
     };
 
     await transporter.sendMail(mailOptions);
+    console.log(`✅ [OTP] Resent successfully to ${email}`);
 
     res.json({
       success: true,
@@ -321,7 +361,7 @@ router.post('/resend-otp', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('[OTP] Resend error:', error);
+    console.error('  [OTP] Resend error:', error);
     res.status(500).json({ 
       success: false,
       message: 'Failed to resend OTP: ' + error.message 
@@ -329,7 +369,9 @@ router.post('/resend-otp', async (req, res) => {
   }
 });
 
-//  AUTH ROUTES 
+ 
+//   AUTH ROUTES 
+ 
 
 // ROUTE: Email/Password Login
 router.post('/login', async (req, res) => {
@@ -379,7 +421,7 @@ router.post('/login', async (req, res) => {
       { expiresIn: '7d' }
     );
 
-    console.log('[AUTH] Login successful:', { email, role });
+    console.log('✅ [AUTH] Login successful:', { email, role });
 
     res.json({
       token: jwtToken,
@@ -393,7 +435,7 @@ router.post('/login', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('[AUTH] Login error:', error);
+    console.error('  [AUTH] Login error:', error);
     res.status(500).json({ message: 'Server error: ' + error.message });
   }
 });
@@ -403,6 +445,8 @@ router.post('/signup', async (req, res) => {
   try {
     const { email, password, fullName = 'New User' } = req.body;
 
+    console.log('[AUTH] Signup attempt:', { email, fullName });
+
     if (!email || !password) {
       return res.status(400).json({ message: 'Email and password required' });
     }
@@ -410,6 +454,7 @@ router.post('/signup', async (req, res) => {
     // Check if email is verified
     const otpData = otpStore.get(email);
     if (!otpData || !otpData.verified) {
+      console.log(`  [AUTH] Email not verified: ${email}`);
       return res.status(400).json({ 
         message: 'Please verify your email with OTP first',
         requiresOTP: true
@@ -433,6 +478,7 @@ router.post('/signup', async (req, res) => {
 
     // Clear OTP after successful signup
     otpStore.delete(email);
+    console.log(`✅ [AUTH] OTP cleared for ${email}`);
 
     const jwtToken = jwt.sign(
       { 
@@ -444,6 +490,8 @@ router.post('/signup', async (req, res) => {
       JWT_SECRET,
       { expiresIn: '7d' }
     );
+
+    console.log(`✅ [AUTH] Signup successful: ${email}`);
 
     res.status(201).json({
       message: 'Account created successfully',
@@ -457,7 +505,7 @@ router.post('/signup', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('[AUTH] Signup error:', error);
+    console.error('  [AUTH] Signup error:', error);
     res.status(500).json({ message: 'Server error: ' + error.message });
   }
 });
@@ -525,6 +573,8 @@ router.post('/google', async (req, res) => {
       { expiresIn: '7d' }
     );
 
+    console.log('✅ [AUTH] Google login successful:', { email, role });
+
     res.json({
       token: jwtToken,
       user: {
@@ -538,7 +588,7 @@ router.post('/google', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('[AUTH] Google login error:', error);
+    console.error('  [AUTH] Google login error:', error);
     res.status(500).json({ message: 'Server error: ' + error.message });
   }
 });
