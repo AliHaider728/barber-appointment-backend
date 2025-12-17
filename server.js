@@ -5,10 +5,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { v2 as cloudinary } from 'cloudinary';
 import passport from 'passport';
-
-// ============================================
-// ROUTES IMPORT
-// ============================================
+// ROUTES
 import authRoutes from './routes/auth.js';
 import appointmentRoutes from './routes/appointments.js';
 import barberRoutes from "./routes/barbers.js";
@@ -19,63 +16,38 @@ import paymentRoute from './routes/payments.js';
 import leaveRoutes from './routes/leaves.js'; 
 import adminRoutes from './routes/admins.js';
 import webhookRoutes from './routes/webhooks.js'; 
-import otpRoutes from './routes/otpRoutes.js';  // ✅ OTP Routes
+import otpRoutes from './routes/otpRoutes.js';
 
-// ============================================
-// ENVIRONMENT VARIABLES
-// ============================================
 dotenv.config();
 
-// ✅ Verify critical environment variables on startup
-console.log('🔍 [STARTUP] Checking environment variables...');
-const requiredEnvVars = ['MONGODB_URI', 'JWT_SECRET', 'EMAIL_USER', 'EMAIL_APP_PASSWORD'];
-const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
-
-if (missingEnvVars.length > 0) {
-  console.error('❌ [STARTUP] Missing required environment variables:', missingEnvVars);
-  console.error('❌ [STARTUP] Please check your .env file');
-} else {
-  console.log('✅ [STARTUP] All required environment variables are set');
-  console.log(`✅ [EMAIL] Configured with: ${process.env.EMAIL_USER}`);
-}
-
-// ============================================
-// CLOUDINARY CONFIGURATION
-// ============================================
+// CLOUDINARY
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-console.log('☁️ [CLOUDINARY] Configuration loaded:', {
+console.log('Cloudinary config loaded:', {
   cloud: process.env.CLOUDINARY_CLOUD_NAME,
   key: process.env.CLOUDINARY_API_KEY?.slice(0, 6) + '...',
 });
 
-// ============================================
-// EXPRESS APP INITIALIZATION
-// ============================================
+// EXPRESS APP
 const app = express();
 
-// Passport initialization
+// Passport init
 app.use(passport.initialize());
 
-// ============================================
-// SECURITY HEADERS
-// ============================================
+// Set CSP and COOP headers
 app.use((req, res, next) => {
   res.setHeader('Content-Security-Policy', "frame-ancestors 'self' https://accounts.google.com");
   res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
   next();
 });
 
-// ============================================
-// CORS CONFIGURATION
-// ============================================
+// CORS 
 const allowedOrigins = [
   'http://localhost:5173',
-  'http://localhost:3000',
   'https://barber-appointment-six.vercel.app',
   'https://barber-appointment-b7dlepb5e-alis-projects-58e3c939.vercel.app',
   process.env.FRONTEND_URL,
@@ -83,33 +55,27 @@ const allowedOrigins = [
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (like mobile apps or Postman)
-    if (!origin) return callback(null, true);
-    
-    if (allowedOrigins.includes(origin)) {
+    if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
-      console.warn(`⚠️ [CORS] Blocked origin: ${origin}`);
-      callback(null, true); // Still allow, but log warning
+      callback(null, true);
     }
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-// ============================================
-// MONGODB CONNECTION (Serverless Optimized)
-// ============================================
+// MONGODB CONNECTION -   FOR SERVERLESS
 let isConnected = false;
 
 async function connectToDatabase() {
   if (isConnected && mongoose.connection.readyState === 1) {
-    console.log('♻️ [DB] Using existing database connection');
+    console.log('Using existing database connection');
     return mongoose.connection;
   }
 
-  console.log('🔌 [DB] Creating new database connection...');
+  console.log('Creating new database connection');
   mongoose.set('strictQuery', false);
   
   try {
@@ -121,92 +87,57 @@ async function connectToDatabase() {
     });
     
     isConnected = true;
-    console.log('✅ [DB] MongoDB Connected Successfully');
+    console.log('MongoDB Connected Successfully');
     return mongoose.connection;
   } catch (err) {
-    console.error('❌ [DB] MongoDB Connection Error:', err.message);
+    console.error('MongoDB Connection Error:', err);
     isConnected = false;
     throw err;
   }
 }
 
-// Database connection middleware
+// DATABASE CONNECTION MIDDLEWARE
 app.use(async (req, res, next) => {
   try {
     await connectToDatabase();
     next();
   } catch (error) {
-    console.error('❌ [DB] Connection failed:', error);
-    res.status(500).json({ 
-      error: 'Database connection failed',
-      message: 'Please try again later'
-    });
+    console.error('DB connection failed:', error);
+    res.status(500).json({ error: 'Database connection failed' });
   }
 });
 
-// ============================================
-// WEBHOOKS (Must be BEFORE JSON parsing)
-// ============================================
-// Stripe webhooks need raw body for signature verification
+// IMPORTANT: Webhook route FIRST (before JSON parsing)
+// Stripe needs raw body for signature verification
 app.use('/api/webhooks', webhookRoutes);
 
-// ============================================
-// BODY PARSING MIDDLEWARE
-// ============================================
+// NOW apply JSON parsing for other routes
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 app.use('/uploads', express.static('uploads'));
 
-// ============================================
 // HEALTH CHECK ENDPOINT
-// ============================================
 app.get('/', async (req, res) => {
-  const dbStatus = mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected';
-  const emailConfigured = !!(process.env.EMAIL_USER && process.env.EMAIL_APP_PASSWORD);
-  
   res.json({
     status: 'OK',
-    message: 'Barber Appointment API is running',
+    message: 'API Running',
     timestamp: new Date().toISOString(),
-    version: '2.0',
-    environment: process.env.NODE_ENV || 'development',
-    services: {
-      database: dbStatus,
-      email: emailConfigured ? 'Configured' : 'Not Configured',
-      cloudinary: process.env.CLOUDINARY_CLOUD_NAME ? 'Configured' : 'Not Configured'
-    },
-    endpoints: {
-      auth: [
-        'POST /api/auth/login',
-        'POST /api/auth/signup',
-        'POST /api/auth/google',
-        'GET /api/auth/me'
-      ],
-      otp: [
-        'POST /api/otp/send-otp',
-        'POST /api/otp/verify-otp',
-        'POST /api/otp/resend-otp'
-      ],
-      business: [
-        'GET /api/barbers',
-        'GET /api/branches',
-        'GET /api/services',
-        'GET /api/appointments'
-      ]
-    }
+    dbStatus: mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected',
+    routes: [
+      'GET /api/auth',
+      'POST /api/auth/login',
+      'POST /api/auth/signup',
+      'POST /api/auth/google',
+      'GET /api/barbers',
+      'GET /api/branches',
+      'GET /api/services',
+      'POST /api/webhooks/stripe'
+    ]
   });
 });
-
-// ============================================
-// API ROUTES
-// ============================================
-console.log('📍 [ROUTES] Registering API routes...');
-
-// Authentication & OTP
+ 
+// ROUTES 
 app.use('/api/auth', authRoutes);
-app.use('/api/otp', otpRoutes);  // ✅ Separate OTP routes
-
-// Business Logic
 app.use('/api/appointments', appointmentRoutes);
 app.use('/api/barbers', barberRoutes);
 app.use('/api/barber-shifts', barberShiftRoutes);
@@ -215,46 +146,24 @@ app.use('/api/services', serviceRoutes);
 app.use('/api/payments', paymentRoute);
 app.use('/api/leaves', leaveRoutes);
 app.use('/api/admins', adminRoutes);
+app.use('/api/otp', otpRoutes);
 
-console.log('✅ [ROUTES] All routes registered successfully');
-
-// ============================================
-// 404 HANDLER
-// ============================================
+// 404 PAGE
 app.use('*', (req, res) => {
-  console.log(`❌ [404] Route not found: ${req.method} ${req.originalUrl}`);
+  console.log('404 - Route not found:', req.originalUrl);
   res.status(404).json({ 
     error: 'Route not found',
     path: req.originalUrl,
-    method: req.method,
-    message: 'The requested endpoint does not exist'
+    method: req.method
   });
 });
 
-// ============================================
 // GLOBAL ERROR HANDLER
-// ============================================
 app.use((err, req, res, next) => {
-  console.error('❌ [ERROR]', err);
-  
-  res.status(err.status || 500).json({ 
-    error: err.message || 'Internal Server Error',
-    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
-  });
+  console.error('ERROR:', err);
+  res.status(500).json({ error: err.message || 'Server Error' });
 });
 
-// ============================================
-// GRACEFUL SHUTDOWN
-// ============================================
-process.on('SIGTERM', () => {
-  console.log('🛑 [SHUTDOWN] SIGTERM received, closing server gracefully...');
-  mongoose.connection.close(false, () => {
-    console.log('✅ [SHUTDOWN] MongoDB connection closed');
-    process.exit(0);
-  });
-});
-
-// ============================================
+ 
 // VERCEL SERVERLESS EXPORT
-// ============================================
 export default app;
