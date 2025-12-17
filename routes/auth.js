@@ -1,62 +1,31 @@
+// routes/auth.js
 import express from 'express';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import User from '../models/User.js';
 import Barber from '../models/Barber.js';
 import Admin from '../models/Admins.js';
-import nodemailer from 'nodemailer';
+import { isEmailVerified, clearOTP } from './otpRoutes.js';
 
 const router = express.Router();
 
-// JWT Secret
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey123456789';
 
-// OTP Storage (production mein Redis ya Database use karein)
-const otpStore = new Map();
-
-// ✅ FIXED: Consistent environment variable name
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_APP_PASSWORD  // Changed from MAIL_APP_PASSWORD
-  }
-});
-
-// ✅ Test transporter on startup
-transporter.verify(function(error, success) {
-  if (error) {
-    console.error('  [EMAIL] Transporter verification failed:', error);
-  } else {
-    console.log('✅ [EMAIL] Server is ready to send emails');
-  }
-});
-
-// Generate 6-digit OTP
-const generateOTP = () => {
-  return Math.floor(100000 + Math.random() * 900000).toString();
-};
-
-// MIDDLEWARE: Verify JWT Token
 const verifyToken = async (req, res, next) => {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith('Bearer ')) {
     return res.status(401).json({ message: 'No token provided' });
   }
-  
   const token = authHeader.split(' ')[1];
-
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
     req.user = decoded;
     next();
   } catch (err) {
-    console.error('Token verification error:', err);
     return res.status(401).json({ message: 'Invalid token' });
   }
 };
 
-// ROUTE: Health Check
 router.get('/', (req, res) => {
   res.json({
     message: 'Auth API is running',
@@ -64,9 +33,6 @@ router.get('/', (req, res) => {
       'POST /api/auth/login',
       'POST /api/auth/signup', 
       'POST /api/auth/google',
-      'POST /api/auth/send-otp',
-      'POST /api/auth/verify-otp',
-      'POST /api/auth/resend-otp',
       'GET /api/auth/me',
       'GET /api/auth/verify-admin',
       'GET /api/auth/verify-barber',
@@ -76,7 +42,6 @@ router.get('/', (req, res) => {
   });
 });
 
-// HELPER: Determine user role and get user data
 const getUserWithRole = async (email) => {
   let user = await Admin.findOne({ email });
   if (user) {
@@ -112,273 +77,9 @@ const getUserWithRole = async (email) => {
   return null;
 };
 
- 
-// 📧 OTP ROUTES 
- 
-
-// ROUTE: Send OTP
-router.post('/send-otp', async (req, res) => {
-  try {
-    const { email, fullName } = req.body;
-
-    console.log('[OTP] Request received:', { email, fullName });
-
-    if (!email) {
-      return res.status(400).json({ success: false, message: 'Email required' });
-    }
-
-    // ✅ Check if email credentials are configured
-    if (!process.env.EMAIL_USER || !process.env.EMAIL_APP_PASSWORD) {
-      console.error('  [OTP] Email credentials not configured');
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Email service not configured. Please contact administrator.' 
-      });
-    }
-
-    // Generate OTP
-    const otp = generateOTP();
-    const expiryTime = Date.now() + 10 * 60 * 1000; // 10 minutes
-
-    // Store OTP
-    otpStore.set(email, {
-      otp,
-      expiryTime,
-      fullName: fullName || 'User',
-      verified: false
-    });
-
-    console.log(`[OTP] Generated for ${email}: ${otp}`);
-
-    // Send Email
-    const mailOptions = {
-      from: `"Barber Appointment" <${process.env.EMAIL_USER}>`,
-      to: email,
-      subject: '  Email Verification - OTP Code',
-      html: `
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <style>
-            body { font-family: Arial, sans-serif; background-color: #f4f4f4; margin: 0; padding: 0; }
-            .container { max-width: 600px; margin: 30px auto; background-color: #ffffff; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-            .header { background: linear-gradient(135deg, #D4AF37 0%, #F4D03F 100%); padding: 30px; text-align: center; }
-            .header h1 { color: #000; margin: 0; font-size: 28px; }
-            .content { padding: 40px 30px; text-align: center; }
-            .otp-box { background-color: #f8f9fa; border: 2px dashed #D4AF37; border-radius: 8px; padding: 20px; margin: 30px 0; }
-            .otp-code { font-size: 36px; font-weight: bold; color: #D4AF37; letter-spacing: 8px; margin: 10px 0; }
-            .warning { color: #dc3545; font-size: 14px; margin-top: 20px; }
-            .footer { background-color: #f8f9fa; padding: 20px; text-align: center; font-size: 12px; color: #6c757d; }
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <div class="header">
-              <h1>  Email Verification</h1>
-            </div>
-            <div class="content">
-              <h2>Hello ${fullName || 'User'}! 👋</h2>
-              <p>Thank you for signing up with Barber Appointment System.</p>
-              <p>Your One-Time Password (OTP) for email verification is:</p>
-              
-              <div class="otp-box">
-                <div class="otp-code">${otp}</div>
-              </div>
-              
-              <p>Please enter this code to verify your email address.</p>
-              <p class="warning">  This OTP will expire in 10 minutes.</p>
-              <p style="font-size: 14px; color: #6c757d; margin-top: 30px;">
-                If you didn't request this code, please ignore this email.
-              </p>
-            </div>
-            <div class="footer">
-              <p>Powered by TecnoSphere ✨</p>
-              <p>© 2025 Barber Appointment System. All rights reserved.</p>
-            </div>
-          </div>
-        </body>
-        </html>
-      `
-    };
-
-    await transporter.sendMail(mailOptions);
-    console.log(`✅ [OTP] Email sent successfully to ${email}`);
-
-    res.json({
-      success: true,
-      message: 'OTP sent successfully to your email'
-    });
-
-  } catch (error) {
-    console.error('  [OTP] Send error:', error);
-    res.status(500).json({ 
-      success: false,
-      message: 'Failed to send OTP: ' + error.message 
-    });
-  }
-});
-
-// ROUTE: Verify OTP
-router.post('/verify-otp', async (req, res) => {
-  try {
-    const { email, otp } = req.body;
-
-    console.log('[OTP] Verify request:', { email, otp: otp ? '******' : 'missing' });
-
-    if (!email || !otp) {
-      return res.status(400).json({ 
-        success: false,
-        message: 'Email and OTP required' 
-      });
-    }
-
-    const storedData = otpStore.get(email);
-
-    if (!storedData) {
-      console.log(`  [OTP] No OTP found for ${email}`);
-      return res.status(400).json({ 
-        success: false,
-        message: 'No OTP found. Please request a new one.' 
-      });
-    }
-
-    // Check expiry
-    if (Date.now() > storedData.expiryTime) {
-      otpStore.delete(email);
-      console.log(`  [OTP] Expired for ${email}`);
-      return res.status(400).json({ 
-        success: false,
-        message: 'OTP has expired. Please request a new one.' 
-      });
-    }
-
-    // Verify OTP
-    if (storedData.otp !== otp.toString()) {
-      console.log(`  [OTP] Invalid OTP for ${email}`);
-      return res.status(400).json({ 
-        success: false,
-        message: 'Invalid OTP. Please try again.' 
-      });
-    }
-
-    // Mark as verified
-    storedData.verified = true;
-    otpStore.set(email, storedData);
-
-    console.log(`✅ [OTP] Verified successfully for ${email}`);
-
-    res.json({
-      success: true,
-      message: 'Email verified successfully! You can now complete signup.'
-    });
-
-  } catch (error) {
-    console.error('  [OTP] Verify error:', error);
-    res.status(500).json({ 
-      success: false,
-      message: 'Verification failed: ' + error.message 
-    });
-  }
-});
-
-// ROUTE: Resend OTP
-router.post('/resend-otp', async (req, res) => {
-  try {
-    const { email, fullName } = req.body;
-
-    console.log('[OTP] Resend request:', { email });
-
-    if (!email) {
-      return res.status(400).json({ success: false, message: 'Email required' });
-    }
-
-    // Check if email credentials are configured
-    if (!process.env.EMAIL_USER || !process.env.EMAIL_APP_PASSWORD) {
-      console.error('  [OTP] Email credentials not configured');
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Email service not configured. Please contact administrator.' 
-      });
-    }
-
-    otpStore.delete(email);
-
-    const otp = generateOTP();
-    const expiryTime = Date.now() + 10 * 60 * 1000;
-
-    otpStore.set(email, {
-      otp,
-      expiryTime,
-      fullName: fullName || 'User',
-      verified: false
-    });
-
-    console.log(`[OTP] New OTP generated for ${email}: ${otp}`);
-
-    const mailOptions = {
-      from: `"Barber Appointment" <${process.env.EMAIL_USER}>`,
-      to: email,
-      subject: '  New OTP Code',
-      html: `
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <style>
-            body { font-family: Arial, sans-serif; background-color: #f4f4f4; margin: 0; padding: 0; }
-            .container { max-width: 600px; margin: 30px auto; background-color: #ffffff; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-            .header { background: linear-gradient(135deg, #D4AF37 0%, #F4D03F 100%); padding: 30px; text-align: center; }
-            .header h1 { color: #000; margin: 0; font-size: 28px; }
-            .content { padding: 40px 30px; text-align: center; }
-            .otp-box { background-color: #f8f9fa; border: 2px dashed #D4AF37; border-radius: 8px; padding: 20px; margin: 30px 0; }
-            .otp-code { font-size: 36px; font-weight: bold; color: #D4AF37; letter-spacing: 8px; margin: 10px 0; }
-          </style> 
-        </head>
-        <body>
-          <div class="container">
-            <div class="header">
-              <h1>  New OTP Code</h1>
-            </div>
-            <div class="content">
-              <h2>Hello ${fullName || 'User'}!</h2>
-              <p>Your new OTP code is:</p>
-              <div class="otp-box">
-                <div class="otp-code">${otp}</div>
-              </div>
-              <p>  This OTP will expire in 10 minutes.</p>
-            </div>
-          </div>
-        </body>
-        </html>
-      `
-    };
-
-    await transporter.sendMail(mailOptions);
-    console.log(`✅ [OTP] Resent successfully to ${email}`);
-
-    res.json({
-      success: true,
-      message: 'New OTP sent successfully'
-    });
-
-  } catch (error) {
-    console.error('  [OTP] Resend error:', error);
-    res.status(500).json({ 
-      success: false,
-      message: 'Failed to resend OTP: ' + error.message 
-    });
-  }
-});
-
- 
-//   AUTH ROUTES 
- 
-
-// ROUTE: Email/Password Login
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
-
-    console.log('[AUTH] Login attempt:', { email });
 
     if (!email || !password) {
       return res.status(400).json({ message: 'Email and password required' });
@@ -421,8 +122,6 @@ router.post('/login', async (req, res) => {
       { expiresIn: '7d' }
     );
 
-    console.log('✅ [AUTH] Login successful:', { email, role });
-
     res.json({
       token: jwtToken,
       user: {
@@ -435,26 +134,19 @@ router.post('/login', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('  [AUTH] Login error:', error);
     res.status(500).json({ message: 'Server error: ' + error.message });
   }
 });
 
-// ROUTE: Email/Password Signup (WITH OTP CHECK)
 router.post('/signup', async (req, res) => {
   try {
     const { email, password, fullName = 'New User' } = req.body;
-
-    console.log('[AUTH] Signup attempt:', { email, fullName });
 
     if (!email || !password) {
       return res.status(400).json({ message: 'Email and password required' });
     }
 
-    // Check if email is verified
-    const otpData = otpStore.get(email);
-    if (!otpData || !otpData.verified) {
-      console.log(`  [AUTH] Email not verified: ${email}`);
+    if (!isEmailVerified(email)) {
       return res.status(400).json({ 
         message: 'Please verify your email with OTP first',
         requiresOTP: true
@@ -476,9 +168,7 @@ router.post('/signup', async (req, res) => {
       emailVerified: true
     });
 
-    // Clear OTP after successful signup
-    otpStore.delete(email);
-    console.log(`✅ [AUTH] OTP cleared for ${email}`);
+    clearOTP(email);
 
     const jwtToken = jwt.sign(
       { 
@@ -490,8 +180,6 @@ router.post('/signup', async (req, res) => {
       JWT_SECRET,
       { expiresIn: '7d' }
     );
-
-    console.log(`✅ [AUTH] Signup successful: ${email}`);
 
     res.status(201).json({
       message: 'Account created successfully',
@@ -505,12 +193,10 @@ router.post('/signup', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('  [AUTH] Signup error:', error);
     res.status(500).json({ message: 'Server error: ' + error.message });
   }
 });
 
-// ROUTE: Google OAuth Login
 router.post('/google', async (req, res) => {
   try {
     const { token } = req.body;
@@ -573,8 +259,6 @@ router.post('/google', async (req, res) => {
       { expiresIn: '7d' }
     );
 
-    console.log('✅ [AUTH] Google login successful:', { email, role });
-
     res.json({
       token: jwtToken,
       user: {
@@ -588,12 +272,10 @@ router.post('/google', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('  [AUTH] Google login error:', error);
     res.status(500).json({ message: 'Server error: ' + error.message });
   }
 });
 
-// ROUTE: Get Current User
 router.get('/me', verifyToken, async (req, res) => {
   try {
     const { id, role } = req.user;
@@ -634,12 +316,10 @@ router.get('/me', verifyToken, async (req, res) => {
       user: userData
     });
   } catch (error) {
-    console.error('[AUTH] Get user error:', error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });
 
-// ROUTE: Verify Admin
 router.get('/verify-admin', verifyToken, async (req, res) => {
   try {
     const { id, role } = req.user;
@@ -665,12 +345,10 @@ router.get('/verify-admin', verifyToken, async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('[AUTH] Admin verification error:', error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });
 
-// ROUTE: Verify Barber
 router.get('/verify-barber', verifyToken, async (req, res) => {
   try {
     const { id, role } = req.user;
@@ -700,12 +378,10 @@ router.get('/verify-barber', verifyToken, async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('[AUTH] Barber verification error:', error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });
 
-// ROUTE: Verify User
 router.get('/verify-user', verifyToken, async (req, res) => {
   try {
     const { id, role } = req.user;
@@ -735,18 +411,15 @@ router.get('/verify-user', verifyToken, async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('[AUTH] User verification error:', error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });
 
-// MIDDLEWARE: Admin Authentication
 export const authenticateAdmin = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
     
     if (!authHeader?.startsWith('Bearer ')) {
-      console.error('[AUTH] No token provided');
       return res.status(401).json({ message: 'No token provided' });
     }
     
@@ -756,44 +429,36 @@ export const authenticateAdmin = async (req, res, next) => {
       const decoded = jwt.verify(token, JWT_SECRET);
       
       if (decoded.role !== 'admin') {
-        console.error('[AUTH] Not an admin:', decoded.role);
         return res.status(403).json({ message: 'Admin access required' });
       }
 
       const admin = await Admin.findById(decoded.id);
       if (!admin) {
-        console.error('[AUTH] Admin not found:', decoded.id);
         return res.status(404).json({ message: 'Admin not found' });
       }
 
       req.user = decoded;
       req.admin = admin;
       
-      console.log('[AUTH] Admin authenticated:', admin.email);
       next();
     } catch (jwtError) {
-      console.error('[AUTH] JWT verification failed:', jwtError.message);
       return res.status(401).json({ message: 'Invalid or expired token' });
     }
   } catch (err) {
-    console.error('[AUTH] Admin auth error:', err);
     return res.status(500).json({ message: 'Authentication error' });
   }
 };
 
-// MIDDLEWARE: Check Permission
 export const checkPermission = (permission) => (req, res, next) => {
   if (!req.admin) {
     return res.status(403).json({ message: 'Admin authentication required' });
   }
 
   if (!req.admin.permissions || !Array.isArray(req.admin.permissions)) {
-    console.warn('[AUTH] Admin has no permissions array');
     return res.status(403).json({ message: 'No permissions configured' });
   }
 
   if (!req.admin.permissions.includes(permission)) {
-    console.warn(`[AUTH] Permission denied: ${permission}`);
     return res.status(403).json({ 
       message: `Permission "${permission}" required`,
       userPermissions: req.admin.permissions
