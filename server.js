@@ -15,6 +15,7 @@ import paymentRoute from './routes/payments.js';
 import leaveRoutes from './routes/leaves.js'; 
 import adminRoutes from './routes/admins.js';
 import webhookRoutes from './routes/webhooks.js'; 
+import otpRoutes from './routes/otpRoutes.js';
 
 dotenv.config();
 
@@ -144,6 +145,7 @@ app.use('/api/services', serviceRoutes);
 app.use('/api/payments', paymentRoute);
 app.use('/api/leaves', leaveRoutes);
 app.use('/api/admins', adminRoutes);
+app.use('/api/otp', otpRoutes);
 
 // 404 PAGE
 app.use('*', (req, res) => {
@@ -162,4 +164,4 @@ app.use((err, req, res, next) => {
 });
 
 // VERCEL SERVERLESS EXPORT
-export default app;
+export default app; 
