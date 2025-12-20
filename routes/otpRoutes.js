@@ -57,7 +57,7 @@ const checkEmailEnv = (res) => {
   }
   return true;
 };
-
+ 
  
 // ROUTE: Send OTP
  
@@ -75,7 +75,7 @@ router.post('/send-otp', async (req, res) => {
     if (!checkEmailEnv(res)) return;
 
     const otp = generateOTP();
-    const expiryTime = Date.now() + 10 * 60 * 1000; // 10 minutes
+    const expiryTime = Date.now() + 2 * 60 * 1000; // 2 minutes
 
     otpStore.set(email, {
       otp,
