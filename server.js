@@ -6,24 +6,7 @@ import { v2 as cloudinary } from 'cloudinary';
 import passport from 'passport';
 //   LOAD ENV FIRST (VERY IMPORTANT)
 dotenv.config();
-
-//   EMAIL ENV CHECK (FIX)   
-console.log('  Checking Email Environment Variables...');
-if (!process.env.EMAIL_USER || !process.env.EMAIL_APP_PASSWORD) {
-  console.error('  EMAIL CONFIG MISSING');
-  console.error('EMAIL_USER:', process.env.EMAIL_USER);
-  console.error(
-    'EMAIL_APP_PASSWORD:',
-    process.env.EMAIL_APP_PASSWORD ? 'SET' : 'MISSING'
-  );
-} else {
-  console.log('  EMAIL CONFIG LOADED');
-  console.log('EMAIL_USER:', process.env.EMAIL_USER);
-}
-
- 
 // ROUTES
- 
 import authRoutes from './routes/auth.js';
 import appointmentRoutes from './routes/appointments.js';
 import barberRoutes from "./routes/barbers.js";
@@ -36,7 +19,6 @@ import adminRoutes from './routes/admins.js';
 import webhookRoutes from './routes/webhooks.js'; 
 import otpRoutes from './routes/otpRoutes.js';
 
- 
 // CLOUDINARY
  
 cloudinary.config({
@@ -45,14 +27,13 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-console.log('☁️ Cloudinary Loaded:', {
+console.log('  Cloudinary Loaded:', {
   cloud: process.env.CLOUDINARY_CLOUD_NAME,
   key: process.env.CLOUDINARY_API_KEY?.slice(0, 6) + '...',
 });
 
  
 // EXPRESS APP
- 
 const app = express();
 
 // Passport init
@@ -73,7 +54,6 @@ app.use((req, res, next) => {
   next();
 });
 
- 
 // CORS
  
 const allowedOrigins = [
@@ -96,7 +76,6 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
- 
 // MONGODB CONNECTION (SERVERLESS SAFE)
  
 let isConnected = false;
@@ -142,15 +121,12 @@ app.use(async (req, res, next) => {
 // STRIPE WEBHOOK (RAW BODY)
  
 app.use('/api/webhooks', webhookRoutes);
-
  
-// BODY PARSERS
- 
+// BODY PARSERS 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 app.use('/uploads', express.static('uploads'));
 
- 
 // HEALTH CHECK
  
 app.get('/', (req, res) => {
@@ -177,7 +153,6 @@ app.use('/api/payments', paymentRoute);
 app.use('/api/leaves', leaveRoutes);
 app.use('/api/admins', adminRoutes);
 app.use('/api/otp', otpRoutes);
-
  
 // 404 HANDLER
  
@@ -198,7 +173,5 @@ app.use((err, req, res, next) => {
   });
 });
 
- 
-// EXPORT FOR VERCEL
- 
+// EXPORT FOR VERCEL 
 export default app;
