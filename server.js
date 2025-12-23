@@ -4,8 +4,10 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { v2 as cloudinary } from 'cloudinary';
 import passport from 'passport';
+
 //   LOAD ENV FIRST (VERY IMPORTANT)
 dotenv.config();
+
 // ROUTES
 import authRoutes from './routes/auth.js';
 import appointmentRoutes from './routes/appointments.js';
@@ -18,44 +20,44 @@ import leaveRoutes from './routes/leaves.js';
 import adminRoutes from './routes/admins.js';
 import webhookRoutes from './routes/webhooks.js'; 
 import otpRoutes from './routes/otpRoutes.js';
+import branchAdminRoutes from './routes/branchAdmin.js';
 
 // CLOUDINARY
- 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-console.log('  Cloudinary Loaded:', {
+console.log('☁️  Cloudinary Loaded:', {
   cloud: process.env.CLOUDINARY_CLOUD_NAME,
   key: process.env.CLOUDINARY_API_KEY?.slice(0, 6) + '...',
 });
 
- 
 // EXPRESS APP
 const app = express();
 
 // Passport init
 app.use(passport.initialize());
 
- 
-// SECURITY HEADERS
- 
+// 🔒 SECURITY HEADERS - FIXED COOP POLICY
 app.use((req, res, next) => {
-  res.setHeader(
-    'Content-Security-Policy',
-    "frame-ancestors 'self' https://accounts.google.com"
-  );
+  // Allow Stripe popups and OAuth
   res.setHeader(
     'Cross-Origin-Opener-Policy',
-    'same-origin-allow-popups'
+    'unsafe-none' // Changed from 'same-origin-allow-popups' to allow all popups
   );
+  
+  // Allow Google OAuth iframe
+  res.setHeader(
+    'Content-Security-Policy',
+    "frame-ancestors 'self' https://accounts.google.com https://connect.stripe.com"
+  );
+  
   next();
 });
 
-// CORS
- 
+// 🌐 CORS
 const allowedOrigins = [
   'http://localhost:5173',
   'https://barber-appointment-six.vercel.app',
@@ -68,7 +70,7 @@ app.use(cors({
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
-      callback(null, true);
+      callback(null, true); // Allow all for development
     }
   },
   credentials: true,
@@ -76,17 +78,16 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
-// MONGODB CONNECTION (SERVERLESS SAFE)
- 
+// 🗄️ MONGODB CONNECTION (SERVERLESS SAFE)
 let isConnected = false;
 
 async function connectToDatabase() {
   if (isConnected && mongoose.connection.readyState === 1) {
-    console.log(' Using existing database connection');
+    console.log('✅ Using existing database connection');
     return mongoose.connection;
   }
 
-  console.log('  Creating new database connection');
+  console.log('🔄 Creating new database connection');
   mongoose.set('strictQuery', false);
 
   try {
@@ -98,7 +99,7 @@ async function connectToDatabase() {
     });
 
     isConnected = true;
-    console.log('  MongoDB Connected');
+    console.log('✅ MongoDB Connected');
     return mongoose.connection;
   } catch (err) {
     console.error('  MongoDB Connection Error:', err);
@@ -117,18 +118,15 @@ app.use(async (req, res, next) => {
   }
 });
 
- 
-// STRIPE WEBHOOK (RAW BODY)
- 
+// 🔔 STRIPE WEBHOOK (RAW BODY) - MUST BE BEFORE JSON PARSER
 app.use('/api/webhooks', webhookRoutes);
- 
-// BODY PARSERS 
+
+// 📦 BODY PARSERS 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 app.use('/uploads', express.static('uploads'));
 
-// HEALTH CHECK
- 
+//   HEALTH CHECK
 app.get('/', (req, res) => {
   res.json({
     status: 'OK',
@@ -136,13 +134,12 @@ app.get('/', (req, res) => {
     emailConfigured: !!(
       process.env.EMAIL_USER && process.env.EMAIL_APP_PASSWORD
     ),
+    stripeConfigured: !!process.env.STRIPE_SECRET_KEY,
     timestamp: new Date().toISOString(),
   });
 });
 
- 
-// ROUTES
- 
+//   ROUTES
 app.use('/api/auth', authRoutes);
 app.use('/api/appointments', appointmentRoutes);
 app.use('/api/barbers', barberRoutes);
@@ -153,19 +150,25 @@ app.use('/api/payments', paymentRoute);
 app.use('/api/leaves', leaveRoutes);
 app.use('/api/admins', adminRoutes);
 app.use('/api/otp', otpRoutes);
- 
-// 404 HANDLER
- 
+app.use('/api/branch-admin', branchAdminRoutes);
+
+//   404 HANDLER
 app.use('*', (req, res) => {
   res.status(404).json({
     error: 'Route not found',
     path: req.originalUrl,
+    availableRoutes: [
+      '/api/auth',
+      '/api/appointments',
+      '/api/barbers',
+      '/api/payments',
+      '/api/branches',
+      '/api/services'
+    ]
   });
 });
 
- 
-// GLOBAL ERROR HANDLER
- 
+//   GLOBAL ERROR HANDLER
 app.use((err, req, res, next) => {
   console.error('  SERVER ERROR:', err);
   res.status(500).json({
@@ -173,5 +176,5 @@ app.use((err, req, res, next) => {
   });
 });
 
-// EXPORT FOR VERCEL 
+//   EXPORT FOR VERCEL 
 export default app;
