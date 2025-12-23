@@ -11,137 +11,137 @@ const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey123456789';
 const otpStore = new Map();
 
 const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_APP_PASSWORD
-  }
+ service: 'gmail',
+ auth: {
+  user: process.env.EMAIL_USER,
+  pass: process.env.EMAIL_APP_PASSWORD
+ }
 });
 
 transporter.verify(function(error, success) {
-  if (error) {
-    console.error('  [EMAIL] Transporter verification failed:', error);
-  } else {
-    console.log('  [EMAIL] Server is ready to send emails');
-  }
+ if (error) {
+  console.error(' [EMAIL] Transporter verification failed:', error);
+ } else {
+  console.log(' [EMAIL] Server is ready to send emails');
+ }
 });
 
 const generateOTP = () => Math.floor(100000 + Math.random() * 900000).toString();
 
 const verifyToken = async (req, res, next) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    return res.status(401).json({ message: 'No token provided' });
-  }
-  
-  const token = authHeader.split(' ')[1];
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    req.user = decoded;
-    next();
-  } catch (err) {
-    console.error('Token verification error:', err);
-    return res.status(401).json({ message: 'Invalid token' });
-  }
+ const authHeader = req.headers.authorization;
+ if (!authHeader?.startsWith('Bearer ')) {
+  return res.status(401).json({ message: 'No token provided' });
+ }
+ 
+ const token = authHeader.split(' ')[1];
+ try {
+  const decoded = jwt.verify(token, JWT_SECRET);
+  req.user = decoded;
+  next();
+ } catch (err) {
+  console.error('Token verification error:', err);
+  return res.status(401).json({ message: 'Invalid token' });
+ }
 };
 
 const getUserWithRole = async (email) => {
-  let user = await Admin.findOne({ email }).populate('assignedBranch');
-  if (user) {
-    return { 
-      user, 
-      role: user.role === 'main_admin' ? 'admin' : 'branch_admin', 
-      fullName: user.fullName,
-      userId: user._id 
-    };
-  }
+ let user = await Admin.findOne({ email }).populate('assignedBranch');
+ if (user) {
+  return { 
+   user, 
+   role: user.role === 'main_admin' ? 'admin' : 'branch_admin', 
+   fullName: user.fullName,
+   userId: user._id 
+  };
+ }
 
-  user = await Barber.findOne({ email }).populate('branch');
-  if (user) {
-    return { 
-      user, 
-      role: 'barber', 
-      fullName: user.name,
-      userId: user._id,
-      barberId: user._id
-    };
-  }
+ user = await Barber.findOne({ email }).populate('branch');
+ if (user) {
+  return { 
+   user, 
+   role: 'barber', 
+   fullName: user.name,
+   userId: user._id,
+   barberId: user._id
+  };
+ }
 
-  user = await User.findOne({ email });
-  if (user) {
-    return { 
-      user, 
-      role: 'user', 
-      fullName: user.fullName,
-      userId: user._id 
-    };
-  }
+ user = await User.findOne({ email });
+ if (user) {
+  return { 
+   user, 
+   role: 'user', 
+   fullName: user.fullName,
+   userId: user._id 
+  };
+ }
 
-  return null;
+ return null;
 };
 
 // Health Check
 router.get('/', (req, res) => {
-  res.json({
-    message: 'Auth API is running',
-    routes: [
-      'POST /api/auth/login',
-      'POST /api/auth/signup', 
-      'POST /api/auth/google',
-      'POST /api/auth/send-otp',
-      'POST /api/auth/verify-otp',
-      'POST /api/auth/resend-otp',
-      'GET /api/auth/me'
-    ],
-    emailConfigured: !!process.env.EMAIL_USER && !!process.env.EMAIL_APP_PASSWORD
-  });
+ res.json({
+  message: 'Auth API is running',
+  routes: [
+   'POST /api/auth/login',
+   'POST /api/auth/signup', 
+   'POST /api/auth/google',
+   'POST /api/auth/send-otp',
+   'POST /api/auth/verify-otp',
+   'POST /api/auth/resend-otp',
+   'GET /api/auth/me'
+  ],
+  emailConfigured: !!process.env.EMAIL_USER && !!process.env.EMAIL_APP_PASSWORD
+ });
 });
 
 // Send OTP
 router.post('/send-otp', async (req, res) => {
-  try {
-    const { email, fullName } = req.body;
-    console.log('[OTP] Request received:', { email, fullName });
+ try {
+  const { email, fullName } = req.body;
+  console.log('[OTP] Request received:', { email, fullName });
 
-    if (!email) {
-      return res.status(400).json({ success: false, message: 'Email required' });
-    }
+  if (!email) {
+   return res.status(400).json({ success: false, message: 'Email required' });
+  }
 
-    if (!process.env.EMAIL_USER || !process.env.EMAIL_APP_PASSWORD) {
-      console.error('  [OTP] Email credentials not configured');
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Email service not configured. Please contact administrator.' 
-      });
-    }
+  if (!process.env.EMAIL_USER || !process.env.EMAIL_APP_PASSWORD) {
+   console.error(' [OTP] Email credentials not configured');
+   return res.status(500).json({ 
+    success: false, 
+    message: 'Email service not configured. Please contact administrator.' 
+   });
+  }
 
-    const otp = generateOTP();
-    const expiryTime = Date.now() + 10 * 60 * 1000;
+  const otp = generateOTP();
+  const expiryTime = Date.now() + 10 * 60 * 1000;
 
-    otpStore.set(email, {
-      otp,
-      expiryTime,
-      fullName: fullName || 'User',
-      verified: false
-    });
+  otpStore.set(email, {
+   otp,
+   expiryTime,
+   fullName: fullName || 'User',
+   verified: false
+  });
 
-    console.log(`  [OTP] Generated for ${email}: ${otp}`);
+  console.log(` [OTP] Generated for ${email}: ${otp}`);
 
-    const mailOptions = {
-      from: `"Barber Appointment" <${process.env.EMAIL_USER}>`,
-      to: email,
-      subject: '🔐 Email Verification - OTP Code',
-      html: `
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <style>
-            body { font-family: Arial, sans-serif; background-color: #f4f4f4; margin: 0; padding: 0; }
-            .container { max-width: 600px; margin: 30px auto; background-color: #ffffff; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-            .header { background: linear-gradient(135deg, #D4AF37 0%, #F4D03F 100%); padding: 30px; text-align: center; }
-            .header h1 { color: #000; margin: 0; font-size: 28px; }
-            .content { padding: 40px 30px; text-align: center; }
-            .otp-box { background-color: #f8f9fa; border: 2px dashed #D4AF37; border-radius: 8px; padding: 20px; margin: 30px 0; }
+  const mailOptions = {
+   from: `"Barber Appointment" <${process.env.EMAIL_USER}>`,
+   to: email,
+   subject: '🔐 Email Verification - OTP Code',
+   html: `
+    <!DOCTYPE html>
+    <html>
+    <head>
+     <style>
+      body { font-family: Arial, sans-serif; background-color: #f4f4f4; margin: 0; padding: 0; }
+      .container { max-width: 600px; margin: 30px auto; background-color: #ffffff; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+      .header { background: linear-gradient(135deg, #D4AF37 0%, #F4D03F 100%); padding: 30px; text-align: center; }
+      .header h1 { color: #000; margin: 0; font-size: 28px; }
+      .content { padding: 40px 30px; text-align: center; }
+       .otp-box { background-color: #f8f9fa; border: 2px dashed #D4AF37; border-radius: 8px; padding: 20px; margin: 30px 0; }
             .otp-code { font-size: 36px; font-weight: bold; color: #D4AF37; letter-spacing: 8px; margin: 10px 0; }
             .warning { color: #dc3545; font-size: 14px; margin-top: 20px; }
             .footer { background-color: #f8f9fa; padding: 20px; text-align: center; font-size: 12px; color: #6c757d; }
@@ -728,31 +728,31 @@ export const authenticateBranchAdmin = async (req, res, next) => {
     console.log('  [AUTH] Branch Admin authenticated:', admin.email);
     next();
   } catch (err) {
-    console.error('  [AUTH] Branch Admin auth error:', err);
-    return res.status(401).json({ message: 'Invalid or expired token' });
-  }
+    console.error(' [AUTH] Branch Admin auth error:', err);
+  return res.status(401).json({ message: 'Invalid or expired token' });
+ }
 };
 
 // Check Permission
 export const checkPermission = (permission) => {
-  return (req, res, next) => {
-    if (!req.admin) {
-      return res.status(401).json({ message: 'Not authenticated' });
-    }
+ return (req, res, next) => {
+  if (!req.admin) {
+   return res.status(401).json({ message: 'Not authenticated' });
+  }
 
-    if (req.admin.role === 'main_admin') {
-      return next();
-    }
+  if (req.admin.role === 'main_admin') {
+   return next();
+  }
 
-    if (!req.admin.permissions.includes(permission)) {
-      return res.status(403).json({ 
-        message: 'Permission denied',
-        required: permission
-      });
-    }
+  if (!req.admin.permissions.includes(permission)) {
+   return res.status(403).json({ 
+    message: 'Permission denied',
+    required: permission
+   });
+  }
 
-    next();
-  };
+  next();
+ };
 };
 
 export { verifyToken };
