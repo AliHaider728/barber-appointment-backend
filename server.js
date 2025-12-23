@@ -18,7 +18,7 @@ import leaveRoutes from './routes/leaves.js';
 import adminRoutes from './routes/admins.js';
 import webhookRoutes from './routes/webhooks.js'; 
 import otpRoutes from './routes/otpRoutes.js';
-
+import branchAdminRoutes from './routes/branchAdmin.js'
 // CLOUDINARY
  
 cloudinary.config({
@@ -153,6 +153,7 @@ app.use('/api/payments', paymentRoute);
 app.use('/api/leaves', leaveRoutes);
 app.use('/api/admins', adminRoutes);
 app.use('/api/otp', otpRoutes);
+app.use('/api/branch-admin', branchAdminRoutes);
  
 // 404 HANDLER
  
