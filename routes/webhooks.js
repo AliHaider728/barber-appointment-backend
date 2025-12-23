@@ -268,6 +268,7 @@ async function transferToBarber(payment, barber) {
       console.log(`  Barber account not ready for transfers yet`);
       return;
     }
+    
 
     // Create transfer
     const transfer = await stripe.transfers.create({
