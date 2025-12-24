@@ -18,20 +18,24 @@ const adminSchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ['main_admin', 'branch_admin'], // Main Admin ya Branch Admin
+    enum: ['main_admin', 'branch_admin'],
     default: 'branch_admin'
+  },
+  // ✅ ADD THIS FIELD - CRITICAL!
+  isActive: {
+    type: Boolean,
+    default: true
   },
   assignedBranch: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Branch',
     required: function() {
-      return this.role === 'branch_admin'; // Sirf branch admin ke liye required
+      return this.role === 'branch_admin';
     }
   },
   permissions: {
     type: [String],
     default: function() {
-      // Branch admin ko limited permissions
       if (this.role === 'branch_admin') {
         return [
           'view_branch_barbers',
@@ -43,7 +47,6 @@ const adminSchema = new mongoose.Schema({
           'manage_branch_leaves'
         ];
       }
-      // Main admin ko full permissions
       return [
         'manage_barbers',
         'manage_branches', 
@@ -59,6 +62,5 @@ const adminSchema = new mongoose.Schema({
 
 adminSchema.index({ email: 1 });
 adminSchema.index({ assignedBranch: 1 });
-
 
 export default mongoose.model('Admin', adminSchema);
