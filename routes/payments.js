@@ -178,8 +178,20 @@ router.get('/stripe/status', verifyToken, async (req, res) => {
       });
     }
 
-    const barber = await Barber.findById(req.user.barberId);
+    // ✅ FIX: Check both barberId from token AND id field
+    const barberId = req.user.barberId || req.user.id;
+    
+    if (!barberId) {
+      console.error('❌ No barber ID in token:', req.user);
+      return res.status(400).json({ 
+        connected: false,
+        error: 'Barber ID missing in token' 
+      });
+    }
+
+    const barber = await Barber.findById(barberId);
     if (!barber) {
+      console.error('❌ Barber not found with ID:', barberId);
       return res.status(404).json({ 
         connected: false, 
         error: 'Barber not found' 
@@ -255,9 +267,17 @@ router.post('/stripe/connect', verifyToken, async (req, res) => {
       });
     }
 
-    const barber = await Barber.findById(req.user.barberId);
+    // ✅ FIX: Check both barberId from token AND id field
+    const barberId = req.user.barberId || req.user.id;
+    
+    if (!barberId) {
+      console.error('❌ No barber ID in token:', req.user);
+      return res.status(400).json({ error: 'Barber ID missing in token' });
+    }
+
+    const barber = await Barber.findById(barberId);
     if (!barber) {
-      console.error('❌ Barber not found:', req.user.barberId);
+      console.error('❌ Barber not found:', barberId);
       return res.status(404).json({ error: 'Barber not found' });
     }
 
@@ -364,8 +384,17 @@ router.get('/barber/me', verifyToken, async (req, res) => {
   try {
     console.log('💰 Fetching payments for user:', req.user);
 
-    const barber = await Barber.findById(req.user.barberId);
+    // ✅ FIX: Check both barberId from token AND id field
+    const barberId = req.user.barberId || req.user.id;
+    
+    if (!barberId) {
+      console.error('❌ No barber ID in token:', req.user);
+      return res.status(400).json({ error: 'Barber ID missing in token' });
+    }
+
+    const barber = await Barber.findById(barberId);
     if (!barber) {
+      console.error('❌ Barber not found with ID:', barberId);
       return res.status(404).json({ error: 'Barber not found' });
     }
 
