@@ -40,10 +40,10 @@ router.get('/', authenticateAdmin, checkPermission('manage_admins'), async (req,
   }
 });
 
-// ✅ Create new admin (with branch validation)
+// ✅ Create new admin (with branch validation and default permissions)
 router.post('/', authenticateAdmin, checkPermission('manage_admins'), async (req, res) => {
   try {
-    const { fullName, email, password, role, assignedBranch } = req.body;
+    const { fullName, email, password, role, assignedBranch, permissions } = req.body;
     
     console.log('[ADMINS] Create attempt:', { fullName, email, role });
     
@@ -83,12 +83,24 @@ router.post('/', authenticateAdmin, checkPermission('manage_admins'), async (req
       email: email.toLowerCase().trim(),
       password: hashedPassword,
       role: role || 'branch_admin',
-      isActive: true
+      isActive: true,
+      permissions: role === 'branch_admin' ? [ // Default permissions for branch admin
+        'manage_appointments',
+        'manage_barbers',
+        'manage_shifts',
+        'manage_services',
+        'manage_leaves'
+      ] : [] // Main admin has implicit all
     };
 
     // ✅ Add branch only for branch_admin
     if (role === 'branch_admin' && assignedBranch) {
       adminData.assignedBranch = assignedBranch;
+    }
+
+    // Override permissions if provided
+    if (permissions && Array.isArray(permissions)) {
+      adminData.permissions = permissions;
     }
 
     const admin = new Admin(adminData);
@@ -118,10 +130,10 @@ router.post('/', authenticateAdmin, checkPermission('manage_admins'), async (req
   }
 });
 
-// ✅ Update admin (with branch validation)
+// ✅ Update admin (with branch validation and permissions update)
 router.put('/:id', authenticateAdmin, checkPermission('manage_admins'), async (req, res) => {
   try {
-    const { fullName, email, password, role, assignedBranch } = req.body;
+    const { fullName, email, password, role, assignedBranch, permissions } = req.body;
     
     console.log('[ADMINS] Update attempt:', req.params.id);
     
@@ -155,6 +167,11 @@ router.put('/:id', authenticateAdmin, checkPermission('manage_admins'), async (r
     // ✅ Update branch if provided
     if (assignedBranch !== undefined) {
       updates.assignedBranch = assignedBranch || null;
+    }
+
+    // ✅ Update permissions if provided
+    if (permissions !== undefined) {
+      updates.permissions = Array.isArray(permissions) ? permissions : [];
     }
 
     // Only update password if provided

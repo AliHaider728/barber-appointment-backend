@@ -1,5 +1,5 @@
 import express from 'express';
-import { authenticateBranchAdmin } from './auth.js';
+import { authenticateBranchAdmin, checkPermission } from './auth.js';
 import Barber from '../models/Barber.js';
 import Appointment from '../models/Appointment.js';
 import Service from '../models/Service.js';
@@ -66,7 +66,7 @@ router.get('/barbers', authenticateBranchAdmin, async (req, res) => {
   }
 });
 
-router.post('/barbers', authenticateBranchAdmin, async (req, res) => {
+router.post('/barbers', authenticateBranchAdmin, checkPermission('manage_barbers'), async (req, res) => {
   try {
     const barber = await Barber.create({
       ...req.body,
@@ -81,7 +81,7 @@ router.post('/barbers', authenticateBranchAdmin, async (req, res) => {
   }
 });
 
-router.put('/barbers/:id', authenticateBranchAdmin, async (req, res) => {
+router.put('/barbers/:id', authenticateBranchAdmin, checkPermission('manage_barbers'), async (req, res) => {
   try {
     const barber = await Barber.findById(req.params.id);
     if (!barber) return res.status(404).json({ message: 'Barber not found' });
@@ -102,7 +102,7 @@ router.put('/barbers/:id', authenticateBranchAdmin, async (req, res) => {
   }
 });
 
-router.delete('/barbers/:id', authenticateBranchAdmin, async (req, res) => {
+router.delete('/barbers/:id', authenticateBranchAdmin, checkPermission('manage_barbers'), async (req, res) => {
   try {
     const barber = await Barber.findById(req.params.id);
     if (!barber) return res.status(404).json({ message: 'Barber not found' });
@@ -142,7 +142,7 @@ router.get('/appointments', authenticateBranchAdmin, async (req, res) => {
   }
 });
 
-router.put('/appointments/:id', authenticateBranchAdmin, async (req, res) => {
+router.put('/appointments/:id', authenticateBranchAdmin, checkPermission('manage_appointments'), async (req, res) => {
   try {
     const appointment = await Appointment.findById(req.params.id);
     if (!appointment) return res.status(404).json({ message: 'Appointment not found' });
@@ -178,7 +178,7 @@ router.get('/shifts', authenticateBranchAdmin, async (req, res) => {
   }
 });
 
-router.post('/shifts', authenticateBranchAdmin, async (req, res) => {
+router.post('/shifts', authenticateBranchAdmin, checkPermission('manage_shifts'), async (req, res) => {
   try {
     const barber = await Barber.findById(req.body.barber);
     if (!barber || barber.branch.toString() !== req.admin.assignedBranch._id.toString()) {
@@ -195,7 +195,7 @@ router.post('/shifts', authenticateBranchAdmin, async (req, res) => {
   }
 });
 
-router.put('/shifts/:id', authenticateBranchAdmin, async (req, res) => {
+router.put('/shifts/:id', authenticateBranchAdmin, checkPermission('manage_shifts'), async (req, res) => {
   try {
     const shift = await BarberShift.findById(req.params.id).populate('barber');
     if (!shift) return res.status(404).json({ message: 'Shift not found' });
@@ -216,7 +216,7 @@ router.put('/shifts/:id', authenticateBranchAdmin, async (req, res) => {
   }
 });
 
-router.delete('/shifts/:id', authenticateBranchAdmin, async (req, res) => {
+router.delete('/shifts/:id', authenticateBranchAdmin, checkPermission('manage_shifts'), async (req, res) => {
   try {
     const shift = await BarberShift.findById(req.params.id).populate('barber');
     if (!shift) return res.status(404).json({ message: 'Shift not found' });
@@ -241,6 +241,35 @@ router.get('/services', authenticateBranchAdmin, async (req, res) => {
   }
 });
 
+router.post('/services', authenticateBranchAdmin, checkPermission('manage_services'), async (req, res) => {
+  try {
+    const service = await Service.create(req.body);
+    res.status(201).json(service);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+router.put('/services/:id', authenticateBranchAdmin, checkPermission('manage_services'), async (req, res) => {
+  try {
+    const updated = await Service.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    if (!updated) return res.status(404).json({ message: 'Service not found' });
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+router.delete('/services/:id', authenticateBranchAdmin, checkPermission('manage_services'), async (req, res) => {
+  try {
+    const deleted = await Service.findByIdAndDelete(req.params.id);
+    if (!deleted) return res.status(404).json({ message: 'Service not found' });
+    res.json({ message: 'Service deleted successfully' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 router.get('/leaves', authenticateBranchAdmin, async (req, res) => {
   try {
     const barbers = await Barber.find({ branch: req.admin.assignedBranch._id }).select('_id');
@@ -256,7 +285,7 @@ router.get('/leaves', authenticateBranchAdmin, async (req, res) => {
   }
 });
 
-router.put('/leaves/:id', authenticateBranchAdmin, async (req, res) => {
+router.put('/leaves/:id', authenticateBranchAdmin, checkPermission('manage_leaves'), async (req, res) => {
   try {
     const leave = await Leave.findById(req.params.id).populate('barber');
     if (!leave) return res.status(404).json({ message: 'Leave not found' });

@@ -23,11 +23,13 @@ const serviceSchema = new mongoose.Schema({
       message: 'Gender must be either "male" or "female"'
     },
     required: [true, 'Gender (male/female) is required'] 
-  }
+  },
+  branches: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Branch'
+  }]
 }, { 
   timestamps: true 
 });
 
 export default mongoose.model('Service', serviceSchema);
- 
-
