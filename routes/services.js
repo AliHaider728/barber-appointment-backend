@@ -1,8 +1,22 @@
 import express from 'express';
 import Service from '../models/Service.js';
-import { authenticateBranchAdmin, checkPermission } from './auth.js'; 
+import { authenticateBranchAdmin, checkPermission } from './auth.js';
 
 const router = express.Router();
+
+// ✅ HELPER: Normalize branches to always be an array
+const normalizeBranches = (branches) => {
+  if (!branches) return [];
+  if (Array.isArray(branches)) return branches;
+  return [branches]; // Convert single value to array
+};
+
+// ✅ HELPER: Extract branch ID safely
+const extractBranchId = (branch) => {
+  if (typeof branch === 'string') return branch;
+  if (branch?._id) return branch._id.toString();
+  return null;
+};
 
 // GET all services - for main admin
 router.get('/', async (req, res) => {
@@ -11,12 +25,12 @@ router.get('/', async (req, res) => {
     console.log(` GET /api/services → ${services.length} services found`);
     res.json(services);
   } catch (error) {
-    console.error(' GET services error:', error);
+    console.error('❌ GET services error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
 
-// GET services by gender - for main admin
+// GET services by gender - for barbers/customers
 router.get('/gender/:gender', async (req, res) => {
   try {
     const { gender } = req.params;
@@ -25,11 +39,31 @@ router.get('/gender/:gender', async (req, res) => {
       return res.status(400).json({ message: 'Gender must be "male" or "female"' });
     }
     
-    const services = await Service.find({ gender: gender.toLowerCase() }).populate('branches', 'name');
-    console.log(` GET /api/services/gender/${gender} → ${services.length} services found`);
+    const services = await Service.find({ gender: gender.toLowerCase() })
+      .populate('branches', 'name city')
+      .sort({ name: 1 });
+    
+    console.log(`✅ GET /api/services/gender/${gender} → ${services.length} services found`);
     res.json(services);
   } catch (error) {
-    console.error(' GET services by gender error:', error);
+    console.error('❌ GET services by gender error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// GET services by branch - for filtering
+router.get('/branch/:branchId', async (req, res) => {
+  try {
+    const { branchId } = req.params;
+    
+    const services = await Service.find({ branches: branchId })
+      .populate('branches', 'name city')
+      .sort({ gender: 1, name: 1 });
+    
+    console.log(`✅ GET /api/services/branch/${branchId} → ${services.length} services found`);
+    res.json(services);
+  } catch (error) {
+    console.error('❌ GET services by branch error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
@@ -64,28 +98,37 @@ router.post('/', async (req, res) => {
       });
     }
 
+    // ✅ Normalize branches to array
+    const normalizedBranches = normalizeBranches(branches);
+
     const service = new Service({ 
       name: name.trim(), 
       duration: duration.trim(), 
       price: price.trim(),
       gender: gender.toLowerCase(),
-      branches: branches || []
+      branches: normalizedBranches
     });
 
     await service.save();
-    const populated = await Service.findById(service._id).populate('branches', 'name');
-    console.log(' Service created:', service._id, '-', service.name);
+    const populated = await Service.findById(service._id).populate('branches', 'name city');
+    console.log('✅ Service created:', service._id, '-', service.name);
     res.status(201).json(populated);
   } catch (error) {
-    console.error(' CREATE service error:', error);
+    console.error('❌ CREATE service error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
 
-// UPDATE service - for main admin
+// UPDATE service - for main admin/barbers
 router.put('/:id', async (req, res) => {
   try {
     const { name, duration, price, gender, branches } = req.body;
+
+    // Find existing service first
+    const existingService = await Service.findById(req.params.id);
+    if (!existingService) {
+      return res.status(404).json({ message: 'Service not found' });
+    }
 
     // Validation
     if (!name || !duration || !price || !gender) {
@@ -100,28 +143,44 @@ router.put('/:id', async (req, res) => {
       });
     }
 
+    // ✅ Normalize branches - handle both array and single values
+    let normalizedBranches = normalizeBranches(branches);
+    
+    // If branches is provided, use it; otherwise keep existing
+    if (!branches || normalizedBranches.length === 0) {
+      // ✅ Keep existing branches if none provided
+      normalizedBranches = normalizeBranches(existingService.branches);
+    }
+
+    // ✅ Remove duplicates and clean branch IDs
+    const cleanBranches = [...new Set(
+      normalizedBranches
+        .map(extractBranchId)
+        .filter(Boolean)
+    )];
+
     const updateData = {
       name: name.trim(),
       duration: duration.trim(),
       price: price.trim(),
       gender: gender.toLowerCase(),
-      branches: branches || []
+      branches: cleanBranches
     };
 
     const service = await Service.findByIdAndUpdate(
       req.params.id, 
       updateData, 
       { new: true, runValidators: true }
-    ).populate('branches', 'name');
+    ).populate('branches', 'name city');
 
     if (!service) {
       return res.status(404).json({ message: 'Service not found' });
     }
 
-    console.log(' Service updated:', service._id);
+    console.log('✅ Service updated:', service._id, '- branches:', cleanBranches.length);
     res.json(service);
   } catch (error) {
-    console.error(' UPDATE service error:', error);
+    console.error('❌ UPDATE service error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
@@ -135,18 +194,46 @@ router.delete('/:id', async (req, res) => {
       return res.status(404).json({ message: 'Service not found' });
     }
 
-    console.log(' Service deleted:', service._id, '-', service.name);
+    console.log('✅ Service deleted:', service._id, '-', service.name);
     res.json({ message: 'Service deleted successfully' });
   } catch (error) {
-    console.error(' DELETE service error:', error);
+    console.error('❌ DELETE service error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// ✅ FIX DATABASE - Convert any non-array branches to arrays
+router.post('/fix-branches', async (req, res) => {
+  try {
+    const services = await Service.find();
+    let fixedCount = 0;
+
+    for (const service of services) {
+      // Check if branches is not an array
+      if (!Array.isArray(service.branches)) {
+        const normalizedBranches = normalizeBranches(service.branches);
+        service.branches = normalizedBranches;
+        await service.save();
+        fixedCount++;
+        console.log(`✅ Fixed service: ${service.name} - branches:`, normalizedBranches);
+      }
+    }
+
+    res.json({ 
+      message: `Fixed ${fixedCount} services`, 
+      totalServices: services.length 
+    });
+  } catch (error) {
+    console.error('❌ Fix branches error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
 
 // For branch admin - get services for their branch
-router.get('/branch', authenticateBranchAdmin, checkPermission('manage_services'), async (req, res) => {
+router.get('/branch-admin', authenticateBranchAdmin, checkPermission('manage_services'), async (req, res) => {
   try {
-    const services = await Service.find({ branches: req.branchId }).sort({ gender: 1, name: 1 });
+    const services = await Service.find({ branches: req.branchId })
+      .sort({ gender: 1, name: 1 });
     res.json(services);
   } catch (error) {
     res.status(500).json({ message: 'Server error' });
@@ -154,52 +241,24 @@ router.get('/branch', authenticateBranchAdmin, checkPermission('manage_services'
 });
 
 // For branch admin - add service for their branch
-router.post('/branch', authenticateBranchAdmin, checkPermission('manage_services'), async (req, res) => {
+router.post('/branch-admin', authenticateBranchAdmin, checkPermission('manage_services'), async (req, res) => {
   try {
     const { name, duration, price, gender } = req.body;
-    // Similar validation as above
+
+    if (!name || !duration || !price || !gender) {
+      return res.status(400).json({ message: 'All fields required' });
+    }
 
     const service = new Service({ 
-      name, duration, price, gender,
-      branches: [req.branchId]
+      name: name.trim(), 
+      duration: duration.trim(), 
+      price: price.trim(),
+      gender: gender.toLowerCase(),
+      branches: [req.branchId] // ✅ Always as array
     });
 
     await service.save();
     res.status(201).json(service);
-  } catch (error) {
-    res.status(500).json({ message: 'Server error' });
-  }
-});
-
-// For branch admin - update service if in their branch
-router.put('/:id', authenticateBranchAdmin, checkPermission('manage_services'), async (req, res) => {
-  try {
-    const service = await Service.findById(req.params.id);
-    if (!service) return res.status(404).json({ message: 'Service not found' });
-    
-    if (!service.branches.includes(req.branchId)) {
-      return res.status(403).json({ message: 'Unauthorized to update this service' });
-    }
-
-    const updated = await Service.findByIdAndUpdate(req.params.id, req.body, { new: true });
-    res.json(updated);
-  } catch (error) {
-    res.status(500).json({ message: 'Server error' });
-  }
-});
-
-// For branch admin - delete service if in their branch
-router.delete('/:id', authenticateBranchAdmin, checkPermission('manage_services'), async (req, res) => {
-  try {
-    const service = await Service.findById(req.params.id);
-    if (!service) return res.status(404).json({ message: 'Service not found' });
-    
-    if (!service.branches.includes(req.branchId)) {
-      return res.status(403).json({ message: 'Unauthorized to delete this service' });
-    }
-
-    await Service.findByIdAndDelete(req.params.id);
-    res.json({ message: 'Service deleted' });
   } catch (error) {
     res.status(500).json({ message: 'Server error' });
   }
