@@ -19,16 +19,19 @@ router.get('/test-auth', authenticateAdmin, async (req, res) => {
       id: req.admin._id,
       email: req.admin.email,
       fullName: req.admin.fullName,
-      permissions: req.admin.permissions
+      permissions: req.admin.permissions,
+      assignedBranch: req.admin.assignedBranch
     }
   });
 });
 
-// Get all admins
+// ✅ Get all admins (with populated branch data)
 router.get('/', authenticateAdmin, checkPermission('manage_admins'), async (req, res) => {
   try {
     console.log('[ADMINS] Fetching all admins');
-    const admins = await Admin.find().select('-password');
+    const admins = await Admin.find()
+      .select('-password')
+      .populate('assignedBranch', 'name city address'); // ✅ Populate branch
     console.log('[ADMINS] Found admins:', admins.length);
     res.json(admins);
   } catch (err) {
@@ -37,16 +40,21 @@ router.get('/', authenticateAdmin, checkPermission('manage_admins'), async (req,
   }
 });
 
-// Create new admin
+// ✅ Create new admin (with branch validation)
 router.post('/', authenticateAdmin, checkPermission('manage_admins'), async (req, res) => {
   try {
-    const { fullName, email, password } = req.body;
+    const { fullName, email, password, role, assignedBranch } = req.body;
     
-    console.log('[ADMINS] Create attempt:', { fullName, email });
+    console.log('[ADMINS] Create attempt:', { fullName, email, role });
     
     // Validation
     if (!fullName || !email || !password) {
       return res.status(400).json({ message: 'All fields are required' });
+    }
+
+    // ✅ Validate branch for branch_admin
+    if (role === 'branch_admin' && !assignedBranch) {
+      return res.status(400).json({ message: 'Branch is required for Branch Admin' });
     }
 
     // Email validation
@@ -69,22 +77,30 @@ router.post('/', authenticateAdmin, checkPermission('manage_admins'), async (req
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
     
-    // Create admin with default permissions
-    const admin = new Admin({
+    // ✅ Create admin with role-based data
+    const adminData = {
       fullName: fullName.trim(),
       email: email.toLowerCase().trim(),
       password: hashedPassword,
-      permissions: ['manage_barbers', 'manage_branches', 'manage_services', 'manage_appointments', 'manage_admins']
-    });
+      role: role || 'branch_admin',
+      isActive: true
+    };
 
-    // Save to database
+    // ✅ Add branch only for branch_admin
+    if (role === 'branch_admin' && assignedBranch) {
+      adminData.assignedBranch = assignedBranch;
+    }
+
+    const admin = new Admin(adminData);
     await admin.save();
     
-    // Return admin without password
-    const { password: _, ...adminData } = admin.toObject();
+    // ✅ Return admin with populated branch
+    const populated = await Admin.findById(admin._id)
+      .select('-password')
+      .populate('assignedBranch', 'name city address');
     
     console.log('[ADMINS] Admin created successfully:', email);
-    res.status(201).json(adminData);
+    res.status(201).json(populated);
   } catch (err) {
     console.error('[ADMINS] Create error:', err);
     
@@ -102,10 +118,10 @@ router.post('/', authenticateAdmin, checkPermission('manage_admins'), async (req
   }
 });
 
-// Update admin
+// ✅ Update admin (with branch validation)
 router.put('/:id', authenticateAdmin, checkPermission('manage_admins'), async (req, res) => {
   try {
-    const { fullName, email, password } = req.body;
+    const { fullName, email, password, role, assignedBranch } = req.body;
     
     console.log('[ADMINS] Update attempt:', req.params.id);
     
@@ -114,12 +130,31 @@ router.put('/:id', authenticateAdmin, checkPermission('manage_admins'), async (r
     
     if (fullName) updates.fullName = fullName.trim();
     if (email) {
-      // Validate email format
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(email)) {
         return res.status(400).json({ message: 'Invalid email format' });
       }
       updates.email = email.toLowerCase().trim();
+    }
+
+    // ✅ Update role and branch
+    if (role) {
+      updates.role = role;
+      
+      // If changing to branch_admin, require branch
+      if (role === 'branch_admin' && !assignedBranch) {
+        return res.status(400).json({ message: 'Branch is required for Branch Admin' });
+      }
+      
+      // If changing to main_admin, remove branch
+      if (role === 'main_admin') {
+        updates.assignedBranch = null;
+      }
+    }
+
+    // ✅ Update branch if provided
+    if (assignedBranch !== undefined) {
+      updates.assignedBranch = assignedBranch || null;
     }
 
     // Only update password if provided
@@ -135,7 +170,9 @@ router.put('/:id', authenticateAdmin, checkPermission('manage_admins'), async (r
       req.params.id, 
       updates, 
       { new: true, runValidators: true }
-    ).select('-password');
+    )
+      .select('-password')
+      .populate('assignedBranch', 'name city address');
     
     if (!admin) {
       return res.status(404).json({ message: 'Admin not found' });
@@ -146,7 +183,6 @@ router.put('/:id', authenticateAdmin, checkPermission('manage_admins'), async (r
   } catch (err) {
     console.error('[ADMINS] Update error:', err);
     
-    // Handle specific MongoDB errors
     if (err.code === 11000) {
       return res.status(400).json({ message: 'Email already exists' });
     }

@@ -11,137 +11,137 @@ const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey123456789';
 const otpStore = new Map();
 
 const transporter = nodemailer.createTransport({
- service: 'gmail',
- auth: {
-  user: process.env.EMAIL_USER,
-  pass: process.env.EMAIL_APP_PASSWORD
- }
+  service: 'gmail',
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_APP_PASSWORD
+  }
 });
 
 transporter.verify(function(error, success) {
- if (error) {
-  console.error(' [EMAIL] Transporter verification failed:', error);
- } else {
-  console.log(' [EMAIL] Server is ready to send emails');
- }
+  if (error) {
+    console.error('❌ [EMAIL] Transporter verification failed:', error);
+  } else {
+    console.log('✅ [EMAIL] Server is ready to send emails');
+  }
 });
 
 const generateOTP = () => Math.floor(100000 + Math.random() * 900000).toString();
 
 const verifyToken = async (req, res, next) => {
- const authHeader = req.headers.authorization;
- if (!authHeader?.startsWith('Bearer ')) {
-  return res.status(401).json({ message: 'No token provided' });
- }
- 
- const token = authHeader.split(' ')[1];
- try {
-  const decoded = jwt.verify(token, JWT_SECRET);
-  req.user = decoded;
-  next();
- } catch (err) {
-  console.error('Token verification error:', err);
-  return res.status(401).json({ message: 'Invalid token' });
- }
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith('Bearer ')) {
+    return res.status(401).json({ message: 'No token provided' });
+  }
+  
+  const token = authHeader.split(' ')[1];
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch (err) {
+    console.error('Token verification error:', err);
+    return res.status(401).json({ message: 'Invalid token' });
+  }
 };
 
 const getUserWithRole = async (email) => {
- let user = await Admin.findOne({ email }).populate('assignedBranch');
- if (user) {
-  return { 
-   user, 
-   role: user.role === 'main_admin' ? 'admin' : 'branch_admin', 
-   fullName: user.fullName,
-   userId: user._id 
-  };
- }
+  let user = await Admin.findOne({ email }).populate('assignedBranch');
+  if (user) {
+    return { 
+      user, 
+      role: user.role === 'main_admin' ? 'admin' : 'branch_admin', 
+      fullName: user.fullName,
+      userId: user._id 
+    };
+  }
 
- user = await Barber.findOne({ email }).populate('branch');
- if (user) {
-  return { 
-   user, 
-   role: 'barber', 
-   fullName: user.name,
-   userId: user._id,
-   barberId: user._id
-  };
- }
+  user = await Barber.findOne({ email }).populate('branch');
+  if (user) {
+    return { 
+      user, 
+      role: 'barber', 
+      fullName: user.name,
+      userId: user._id,
+      barberId: user._id
+    };
+  }
 
- user = await User.findOne({ email });
- if (user) {
-  return { 
-   user, 
-   role: 'user', 
-   fullName: user.fullName,
-   userId: user._id 
-  };
- }
+  user = await User.findOne({ email });
+  if (user) {
+    return { 
+      user, 
+      role: 'user', 
+      fullName: user.fullName,
+      userId: user._id 
+    };
+  }
 
- return null;
+  return null;
 };
 
 // Health Check
 router.get('/', (req, res) => {
- res.json({
-  message: 'Auth API is running',
-  routes: [
-   'POST /api/auth/login',
-   'POST /api/auth/signup', 
-   'POST /api/auth/google',
-   'POST /api/auth/send-otp',
-   'POST /api/auth/verify-otp',
-   'POST /api/auth/resend-otp',
-   'GET /api/auth/me'
-  ],
-  emailConfigured: !!process.env.EMAIL_USER && !!process.env.EMAIL_APP_PASSWORD
- });
+  res.json({
+    message: 'Auth API is running',
+    routes: [
+      'POST /api/auth/login',
+      'POST /api/auth/signup', 
+      'POST /api/auth/google',
+      'POST /api/auth/send-otp',
+      'POST /api/auth/verify-otp',
+      'POST /api/auth/resend-otp',
+      'GET /api/auth/me'
+    ],
+    emailConfigured: !!process.env.EMAIL_USER && !!process.env.EMAIL_APP_PASSWORD
+  });
 });
 
 // Send OTP
 router.post('/send-otp', async (req, res) => {
- try {
-  const { email, fullName } = req.body;
-  console.log('[OTP] Request received:', { email, fullName });
+  try {
+    const { email, fullName } = req.body;
+    console.log('[OTP] Request received:', { email, fullName });
 
-  if (!email) {
-   return res.status(400).json({ success: false, message: 'Email required' });
-  }
+    if (!email) {
+      return res.status(400).json({ success: false, message: 'Email required' });
+    }
 
-  if (!process.env.EMAIL_USER || !process.env.EMAIL_APP_PASSWORD) {
-   console.error(' [OTP] Email credentials not configured');
-   return res.status(500).json({ 
-    success: false, 
-    message: 'Email service not configured. Please contact administrator.' 
-   });
-  }
+    if (!process.env.EMAIL_USER || !process.env.EMAIL_APP_PASSWORD) {
+      console.error('❌ [OTP] Email credentials not configured');
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Email service not configured. Please contact administrator.' 
+      });
+    }
 
-  const otp = generateOTP();
-  const expiryTime = Date.now() + 10 * 60 * 1000;
+    const otp = generateOTP();
+    const expiryTime = Date.now() + 10 * 60 * 1000;
 
-  otpStore.set(email, {
-   otp,
-   expiryTime,
-   fullName: fullName || 'User',
-   verified: false
-  });
+    otpStore.set(email, {
+      otp,
+      expiryTime,
+      fullName: fullName || 'User',
+      verified: false
+    });
 
-  console.log(` [OTP] Generated for ${email}: ${otp}`);
+    console.log(`✅ [OTP] Generated for ${email}: ${otp}`);
 
-  const mailOptions = {
-   from: `"Barber Appointment" <${process.env.EMAIL_USER}>`,
-   to: email,
-   subject: '🔐 Email Verification - OTP Code',
-   html: `
-    <!DOCTYPE html>
-    <html>
-    <head>
-     <style>
-      body { font-family: Arial, sans-serif; background-color: #f4f4f4; margin: 0; padding: 0; }
-      .container { max-width: 600px; margin: 30px auto; background-color: #ffffff; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-      .header { background: linear-gradient(135deg, #D4AF37 0%, #F4D03F 100%); padding: 30px; text-align: center; }
-      .header h1 { color: #000; margin: 0; font-size: 28px; }
-      .content { padding: 40px 30px; text-align: center; }
-       .otp-box { background-color: #f8f9fa; border: 2px dashed #D4AF37; border-radius: 8px; padding: 20px; margin: 30px 0; }
+    const mailOptions = {
+      from: `"Barber Appointment" <${process.env.EMAIL_USER}>`,
+      to: email,
+      subject: '🔐 Email Verification - OTP Code',
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <style>
+            body { font-family: Arial, sans-serif; background-color: #f4f4f4; margin: 0; padding: 0; }
+            .container { max-width: 600px; margin: 30px auto; background-color: #ffffff; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+            .header { background: linear-gradient(135deg, #D4AF37 0%, #F4D03F 100%); padding: 30px; text-align: center; }
+            .header h1 { color: #000; margin: 0; font-size: 28px; }
+            .content { padding: 40px 30px; text-align: center; }
+            .otp-box { background-color: #f8f9fa; border: 2px dashed #D4AF37; border-radius: 8px; padding: 20px; margin: 30px 0; }
             .otp-code { font-size: 36px; font-weight: bold; color: #D4AF37; letter-spacing: 8px; margin: 10px 0; }
             .warning { color: #dc3545; font-size: 14px; margin-top: 20px; }
             .footer { background-color: #f8f9fa; padding: 20px; text-align: center; font-size: 12px; color: #6c757d; }
@@ -178,7 +178,7 @@ router.post('/send-otp', async (req, res) => {
     };
 
     await transporter.sendMail(mailOptions);
-    console.log(`  [OTP] Email sent successfully to ${email}`);
+    console.log(`✅ [OTP] Email sent successfully to ${email}`);
 
     res.json({
       success: true,
@@ -186,7 +186,7 @@ router.post('/send-otp', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('  [OTP] Send error:', error);
+    console.error('❌ [OTP] Send error:', error);
     res.status(500).json({ 
       success: false,
       message: 'Failed to send OTP: ' + error.message 
@@ -210,7 +210,7 @@ router.post('/verify-otp', async (req, res) => {
     const storedData = otpStore.get(email);
 
     if (!storedData) {
-      console.log(`  [OTP] No OTP found for ${email}`);
+      console.log(`❌ [OTP] No OTP found for ${email}`);
       return res.status(400).json({ 
         success: false,
         message: 'No OTP found. Please request a new one.' 
@@ -219,7 +219,7 @@ router.post('/verify-otp', async (req, res) => {
 
     if (Date.now() > storedData.expiryTime) {
       otpStore.delete(email);
-      console.log(`  [OTP] Expired for ${email}`);
+      console.log(`❌ [OTP] Expired for ${email}`);
       return res.status(400).json({ 
         success: false,
         message: 'OTP has expired. Please request a new one.' 
@@ -227,7 +227,7 @@ router.post('/verify-otp', async (req, res) => {
     }
 
     if (storedData.otp !== otp.toString()) {
-      console.log(`  [OTP] Invalid OTP for ${email}`);
+      console.log(`❌ [OTP] Invalid OTP for ${email}`);
       return res.status(400).json({ 
         success: false,
         message: 'Invalid OTP. Please try again.' 
@@ -237,7 +237,7 @@ router.post('/verify-otp', async (req, res) => {
     storedData.verified = true;
     otpStore.set(email, storedData);
 
-    console.log(`  [OTP] Verified successfully for ${email}`);
+    console.log(`✅ [OTP] Verified successfully for ${email}`);
 
     res.json({
       success: true,
@@ -245,7 +245,7 @@ router.post('/verify-otp', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('  [OTP] Verify error:', error);
+    console.error('❌ [OTP] Verify error:', error);
     res.status(500).json({ 
       success: false,
       message: 'Verification failed: ' + error.message 
@@ -282,7 +282,7 @@ router.post('/resend-otp', async (req, res) => {
       verified: false
     });
 
-    console.log(`  [OTP] New OTP generated for ${email}: ${otp}`);
+    console.log(`✅ [OTP] New OTP generated for ${email}: ${otp}`);
 
     const mailOptions = {
       from: `"Barber Appointment" <${process.env.EMAIL_USER}>`,
@@ -322,7 +322,7 @@ router.post('/resend-otp', async (req, res) => {
     };
 
     await transporter.sendMail(mailOptions);
-    console.log(`  [OTP] Resent successfully to ${email}`);
+    console.log(`✅ [OTP] Resent successfully to ${email}`);
 
     res.json({
       success: true,
@@ -330,7 +330,7 @@ router.post('/resend-otp', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('  [OTP] Resend error:', error);
+    console.error('❌ [OTP] Resend error:', error);
     res.status(500).json({ 
       success: false,
       message: 'Failed to resend OTP: ' + error.message 
@@ -388,7 +388,7 @@ router.post('/login', async (req, res) => {
         };
       }
 
-      console.log('  [AUTH] Admin login successful:', admin.role);
+      console.log('✅ [AUTH] Admin login successful:', admin.role);
       return res.json({
         token,
         user: userData,
@@ -410,7 +410,7 @@ router.post('/login', async (req, res) => {
         { expiresIn: '7d' }
       );
 
-      console.log('  [AUTH] Barber login successful');
+      console.log('✅ [AUTH] Barber login successful');
       return res.json({
         token,
         user: {
@@ -443,7 +443,7 @@ router.post('/login', async (req, res) => {
         { expiresIn: '7d' }
       );
 
-      console.log('  [AUTH] User login successful');
+      console.log('✅ [AUTH] User login successful');
       return res.json({
         token,
         user: {
@@ -455,10 +455,10 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    console.log('  [AUTH] No account found for:', email);
+    console.log('❌ [AUTH] No account found for:', email);
     return res.status(401).json({ message: 'Invalid credentials' });
   } catch (err) {
-    console.error('  [AUTH] Login error:', err);
+    console.error('❌ [AUTH] Login error:', err);
     res.status(500).json({ message: 'Server error: ' + err.message });
   }
 });
@@ -475,7 +475,7 @@ router.post('/signup', async (req, res) => {
 
     const otpData = otpStore.get(email);
     if (!otpData || !otpData.verified) {
-      console.log(`  [AUTH] Email not verified: ${email}`);
+      console.log(`❌ [AUTH] Email not verified: ${email}`);
       return res.status(400).json({ 
         message: 'Please verify your email with OTP first',
         requiresOTP: true
@@ -498,7 +498,7 @@ router.post('/signup', async (req, res) => {
     });
 
     otpStore.delete(email);
-    console.log(`  [AUTH] OTP cleared for ${email}`);
+    console.log(`✅ [AUTH] OTP cleared for ${email}`);
 
     const jwtToken = jwt.sign(
       { 
@@ -511,7 +511,7 @@ router.post('/signup', async (req, res) => {
       { expiresIn: '7d' }
     );
 
-    console.log(`  [AUTH] Signup successful: ${email}`);
+    console.log(`✅ [AUTH] Signup successful: ${email}`);
 
     res.status(201).json({
       message: 'Account created successfully',
@@ -525,7 +525,7 @@ router.post('/signup', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('  [AUTH] Signup error:', error);
+    console.error('❌ [AUTH] Signup error:', error);
     res.status(500).json({ message: 'Server error: ' + error.message });
   }
 });
@@ -593,7 +593,7 @@ router.post('/google', async (req, res) => {
       { expiresIn: '7d' }
     );
 
-    console.log('  [AUTH] Google login successful:', { email, role });
+    console.log('✅ [AUTH] Google login successful:', { email, role });
 
     res.json({
       token: jwtToken,
@@ -608,7 +608,7 @@ router.post('/google', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('  [AUTH] Google login error:', error);
+    console.error('❌ [AUTH] Google login error:', error);
     res.status(500).json({ message: 'Server error: ' + error.message });
   }
 });
@@ -629,6 +629,7 @@ router.get('/me', verifyToken, async (req, res) => {
       const admin = await Admin.findById(id).populate('assignedBranch');
       if (admin) {
         userData.permissions = admin.permissions;
+        userData.adminRole = admin.role;
         if (admin.assignedBranch) {
           userData.assignedBranch = admin.assignedBranch;
         }
@@ -658,7 +659,7 @@ router.get('/me', verifyToken, async (req, res) => {
   }
 });
 
-// Main Admin Authentication Middleware
+// ✅ Main Admin Authentication Middleware (FIXED)
 export const authenticateAdmin = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
@@ -674,6 +675,7 @@ export const authenticateAdmin = async (req, res, next) => {
       return res.status(403).json({ message: 'Main Admin access required' });
     }
 
+    // ✅ FIX: Add .populate here
     const admin = await Admin.findById(decoded.id).populate('assignedBranch');
     if (!admin || admin.role !== 'main_admin') {
       return res.status(404).json({ message: 'Main Admin not found' });
@@ -685,15 +687,15 @@ export const authenticateAdmin = async (req, res, next) => {
 
     req.user = decoded;
     req.admin = admin;
-    console.log('  [AUTH] Main Admin authenticated:', admin.email);
+    console.log('✅ [AUTH] Main Admin authenticated:', admin.email);
     next();
   } catch (err) {
-    console.error('  [AUTH] Admin auth error:', err);
+    console.error('❌ [AUTH] Admin auth error:', err);
     return res.status(401).json({ message: 'Invalid or expired token' });
   }
 };
 
-// Branch Admin Authentication Middleware
+// ✅ Branch Admin Authentication Middleware (FIXED)
 export const authenticateBranchAdmin = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
@@ -709,6 +711,7 @@ export const authenticateBranchAdmin = async (req, res, next) => {
       return res.status(403).json({ message: 'Branch Admin access required' });
     }
 
+    // ✅ FIX: Add .populate here
     const admin = await Admin.findById(decoded.id).populate('assignedBranch');
     if (!admin || admin.role !== 'branch_admin') {
       return res.status(404).json({ message: 'Branch Admin not found' });
@@ -718,41 +721,45 @@ export const authenticateBranchAdmin = async (req, res, next) => {
       return res.status(403).json({ message: 'Admin account is disabled' });
     }
 
+    // ✅ FIX: Check if branch is assigned
     if (!admin.assignedBranch) {
+      console.error('❌ [AUTH] Branch admin missing assignedBranch:', admin.email);
       return res.status(400).json({ message: 'No branch assigned' });
     }
 
     req.user = decoded;
     req.admin = admin;
     req.branchId = admin.assignedBranch._id;
-    console.log('  [AUTH] Branch Admin authenticated:', admin.email);
+    console.log('✅ [AUTH] Branch Admin authenticated:', admin.email);
     next();
   } catch (err) {
-    console.error(' [AUTH] Branch Admin auth error:', err);
-  return res.status(401).json({ message: 'Invalid or expired token' });
- }
+    console.error('❌ [AUTH] Branch Admin auth error:', err);
+    return res.status(401).json({ message: 'Invalid or expired token' });
+  }
 };
 
-// Check Permission
+// Check Permission Middleware
 export const checkPermission = (permission) => {
- return (req, res, next) => {
-  if (!req.admin) {
-   return res.status(401).json({ message: 'Not authenticated' });
-  }
+  return (req, res, next) => {
+    if (!req.admin) {
+      return res.status(401).json({ message: 'Not authenticated' });
+    }
 
-  if (req.admin.role === 'main_admin') {
-   return next();
-  }
+    // Main admin has all permissions
+    if (req.admin.role === 'main_admin') {
+      return next();
+    }
 
-  if (!req.admin.permissions.includes(permission)) {
-   return res.status(403).json({ 
-    message: 'Permission denied',
-    required: permission
-   });
-  }
+    // Check if branch admin has the required permission
+    if (!req.admin.permissions || !req.admin.permissions.includes(permission)) {
+      return res.status(403).json({ 
+        message: 'Permission denied',
+        required: permission
+      });
+    }
 
-  next();
- };
+    next();
+  };
 };
 
 export { verifyToken };
