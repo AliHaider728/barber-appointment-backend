@@ -44,31 +44,60 @@ router.post('/', authenticateAdmin, checkPermission('manage_admins'), async (req
     
     console.log('[ADMINS] Create attempt:', { fullName, email });
     
+    // Validation
     if (!fullName || !email || !password) {
       return res.status(400).json({ message: 'All fields are required' });
     }
 
-    const existing = await Admin.findOne({ email });
+    // Email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ message: 'Invalid email format' });
+    }
+
+    // Check if email already exists
+    const existing = await Admin.findOne({ email: email.toLowerCase() });
     if (existing) {
       return res.status(400).json({ message: 'Email already exists' });
     }
 
+    // Password validation
+    if (password.length < 6) {
+      return res.status(400).json({ message: 'Password must be at least 6 characters' });
+    }
+
+    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
     
+    // Create admin with default permissions
     const admin = new Admin({
-      fullName,
-      email,
+      fullName: fullName.trim(),
+      email: email.toLowerCase().trim(),
       password: hashedPassword,
       permissions: ['manage_barbers', 'manage_branches', 'manage_services', 'manage_appointments', 'manage_admins']
     });
 
+    // Save to database
     await admin.save();
+    
+    // Return admin without password
     const { password: _, ...adminData } = admin.toObject();
     
     console.log('[ADMINS] Admin created successfully:', email);
     res.status(201).json(adminData);
   } catch (err) {
     console.error('[ADMINS] Create error:', err);
+    
+    // Handle specific MongoDB errors
+    if (err.code === 11000) {
+      return res.status(400).json({ message: 'Email already exists' });
+    }
+    
+    if (err.name === 'ValidationError') {
+      const messages = Object.values(err.errors).map(e => e.message);
+      return res.status(400).json({ message: messages.join(', ') });
+    }
+    
     res.status(500).json({ message: 'Server error: ' + err.message });
   }
 });
@@ -80,9 +109,24 @@ router.put('/:id', authenticateAdmin, checkPermission('manage_admins'), async (r
     
     console.log('[ADMINS] Update attempt:', req.params.id);
     
-    const updates = { fullName, email };
+    // Build updates object
+    const updates = {};
+    
+    if (fullName) updates.fullName = fullName.trim();
+    if (email) {
+      // Validate email format
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({ message: 'Invalid email format' });
+      }
+      updates.email = email.toLowerCase().trim();
+    }
 
+    // Only update password if provided
     if (password && password.trim() !== '') {
+      if (password.length < 6) {
+        return res.status(400).json({ message: 'Password must be at least 6 characters' });
+      }
       updates.password = await bcrypt.hash(password, 10);
       console.log('[ADMINS] Password will be updated');
     }
@@ -90,7 +134,7 @@ router.put('/:id', authenticateAdmin, checkPermission('manage_admins'), async (r
     const admin = await Admin.findByIdAndUpdate(
       req.params.id, 
       updates, 
-      { new: true }
+      { new: true, runValidators: true }
     ).select('-password');
     
     if (!admin) {
@@ -101,6 +145,17 @@ router.put('/:id', authenticateAdmin, checkPermission('manage_admins'), async (r
     res.json(admin);
   } catch (err) {
     console.error('[ADMINS] Update error:', err);
+    
+    // Handle specific MongoDB errors
+    if (err.code === 11000) {
+      return res.status(400).json({ message: 'Email already exists' });
+    }
+    
+    if (err.name === 'ValidationError') {
+      const messages = Object.values(err.errors).map(e => e.message);
+      return res.status(400).json({ message: messages.join(', ') });
+    }
+    
     res.status(500).json({ message: 'Server error: ' + err.message });
   }
 });
@@ -111,7 +166,7 @@ router.delete('/:id', authenticateAdmin, checkPermission('manage_admins'), async
     console.log('[ADMINS] Delete attempt:', req.params.id);
     
     // Prevent deleting yourself
-    if (req.user.id === req.params.id) {
+    if (req.user.id === req.params.id || req.admin._id.toString() === req.params.id) {
       return res.status(400).json({ message: 'Cannot delete your own account' });
     }
     
