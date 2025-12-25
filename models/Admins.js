@@ -21,7 +21,6 @@ const adminSchema = new mongoose.Schema({
     enum: ['main_admin', 'branch_admin'],
     default: 'branch_admin'
   },
-  // ✅ ADD THIS FIELD - CRITICAL!
   isActive: {
     type: Boolean,
     default: true
@@ -29,25 +28,39 @@ const adminSchema = new mongoose.Schema({
   assignedBranch: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Branch',
-    required: function() {
-      return this.role === 'branch_admin';
+    // FIX: Remove required function, validate manually
+    validate: {
+      validator: function(value) {
+        // Only validate if role is branch_admin
+        if (this.role === 'branch_admin') {
+          return value != null;
+        }
+        return true;
+      },
+      message: 'Branch is required for Branch Admin'
     }
   },
   permissions: {
     type: [String],
-    default: function() {
-      if (this.role === 'branch_admin') {
-        return [
-          'view_branch_barbers',
-          'manage_branch_barbers',
-          'view_branch_appointments',
-          'manage_branch_appointments',
-          'manage_branch_shifts',
-          'view_branch_services',
-          'manage_branch_leaves'
-        ];
-      }
-      return [
+    default: []
+  }
+}, { timestamps: true });
+
+// Pre-save hook to set permissions
+adminSchema.pre('save', function(next) {
+  if (this.isNew || this.isModified('role')) {
+    if (this.role === 'branch_admin') {
+      this.permissions = [
+        'view_branch_barbers',
+        'manage_branch_barbers',
+        'view_branch_appointments',
+        'manage_branch_appointments',
+        'manage_branch_shifts',
+        'view_branch_services',
+        'manage_branch_leaves'
+      ];
+    } else {
+      this.permissions = [
         'manage_barbers',
         'manage_branches', 
         'manage_services',
@@ -58,7 +71,8 @@ const adminSchema = new mongoose.Schema({
       ];
     }
   }
-}, { timestamps: true });
+  next();
+});
 
 adminSchema.index({ email: 1 });
 adminSchema.index({ assignedBranch: 1 });

@@ -15,7 +15,7 @@ const femaleNames = ['Sarah', 'Emma', 'Aisha', 'Fatima', 'Zara', 'Nadia', 'Hira'
 
 mongoose.connect(process.env.MONGODB_URI)
   .then(async () => {
-    console.log('🌱 Starting Smart Seeding...');
+    console.log(' Starting Smart Seeding...');
 
     // 1. BRANCHES
     const branchData = [
@@ -30,7 +30,7 @@ mongoose.connect(process.env.MONGODB_URI)
       if (!branch) branch = await Branch.create(b);
       branches.push(branch);
     }
-    console.log(`✅ Branches ready: ${branches.length}`);
+    console.log(`  Branches ready: ${branches.length}`);
 
     // 2. SERVICES
     const serviceData = [
@@ -54,7 +54,7 @@ mongoose.connect(process.env.MONGODB_URI)
       if (!service) service = await Service.create(s);
       allServices.push(service);
     }
-    console.log(`✅ Services ready: ${allServices.length}`);
+    console.log(`  Services ready: ${allServices.length}`);
 
     // 3. CREATE/UPDATE ADMIN WITH PASSWORD AND PERMISSIONS
     const adminEmail = 'admin@barbershop.com';
@@ -69,23 +69,23 @@ mongoose.connect(process.env.MONGODB_URI)
         email: adminEmail,
         password: hashedPassword,
         fullName: 'Admin User',
-        role: 'main_admin', // ✅ Correct role for your Admin model
-        isActive: true, // ✅ CRITICAL: Enable account
+        role: 'main_admin', //   Correct role for your Admin model
+        isActive: true, //   CRITICAL: Enable account
         permissions: ['manage_barbers', 'manage_branches', 'manage_services', 'manage_appointments', 'manage_admins', 'manage_leaves', 'view_analytics']
       });
-      console.log('✅ Admin created with password, role, and ALL permissions');
+      console.log('  Admin created with password, role, and ALL permissions');
     } else {
       // Update existing admin - FORCE password, role, and permissions
       admin.password = hashedPassword;
       admin.fullName = 'Admin User';
-      admin.role = 'main_admin'; // ✅ Set correct role
-      admin.isActive = true; // ✅ CRITICAL: Activate account
+      admin.role = 'main_admin'; //   Set correct role
+      admin.isActive = true; //   CRITICAL: Activate account
       
       // Update permissions
       admin.permissions = ['manage_barbers', 'manage_branches', 'manage_services', 'manage_appointments', 'manage_admins', 'manage_leaves', 'view_analytics'];
       
       await admin.save();
-      console.log('✅ Admin password, role, isActive, and permissions UPDATED');
+      console.log('  Admin password, role, isActive, and permissions UPDATED');
     }
 
     // 4. BARBERS - SKIP IF ALREADY EXIST (PRESERVE YOUR DATA)
@@ -149,9 +149,9 @@ mongoose.connect(process.env.MONGODB_URI)
       }
 
       const createdBarbers = await Barber.insertMany(allBarbers);
-      console.log(`✅ Barbers created: ${createdBarbers.length}`);
+      console.log(`  Barbers created: ${createdBarbers.length}`);
     } else {
-      console.log(`⏭️  Barbers already exist (${existingBarbers} barbers) - SKIPPING to preserve your data`);
+      console.log(`   Barbers already exist (${existingBarbers} barbers) - SKIPPING to preserve your data`);
     }
 
     // 5. SHIFTS - SKIP IF ALREADY EXIST (PRESERVE YOUR DATA)
@@ -192,32 +192,28 @@ mongoose.connect(process.env.MONGODB_URI)
       }
 
       await BarberShift.insertMany(shifts);
-      console.log(`✅ Shifts created: ${shifts.length}`);
+      console.log(`  Shifts created: ${shifts.length}`);
     } else {
-      console.log(`⏭️  Shifts already exist (${existingShifts} shifts) - SKIPPING to preserve your data`);
+      console.log(`   Shifts already exist (${existingShifts} shifts) - SKIPPING to preserve your data`);
     }
-    
-    console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('🎉 SEEDING COMPLETE!');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
-    console.log('🔐 LOGIN CREDENTIALS:\n');
-    console.log('👑 MAIN ADMIN:');
-    console.log('  Email:       admin@barbershop.com');
-    console.log('  Password:    admin123');
-    console.log('  Role:        main_admin');
-    console.log('  Permissions: ALL (full access)');
-    console.log('  Can add new admins via Admin Dashboard\n');
-    console.log('✂️  BARBERS (all use same password):');
-    console.log('  Email:    barber1@barbershop.com to barber15@barbershop.com');
-    console.log('  Password: barber123\n');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
-    console.log('📝 NOTE: Your existing barbers, shifts, leaves, and appointments');
+     
+    console.log('SEEDING COMPLETE!');
+    console.log('LOGIN CREDENTIALS:\n');
+    console.log('MAIN ADMIN:');
+    console.log('Email:admin@barbershop.com');
+    console.log('Password:admin123');
+    console.log('Role:main_admin');
+    console.log('Permissions: ALL (full access)');
+    console.log('Can add new admins via Admin Dashboard\n');
+    console.log('BARBERS (all use same password):');
+    console.log('Email:barber1@barbershop.com to barber15@barbershop.com');
+    console.log('Password: barber123\n');
+    console.log('NOTE: Your existing barbers, shifts, leaves, and appointments');
     console.log('are PRESERVED and NOT modified.\n');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
     
     mongoose.connection.close();
   })
   .catch(err => {
-    console.error('❌ Seed failed:', err.message);
+    console.error('  Seed failed:', err.message);
     process.exit(1);
   });
