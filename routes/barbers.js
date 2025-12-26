@@ -81,11 +81,11 @@ router.post('/', async (req, res) => {
 
     const populated = await Barber.findById(barber._id).populate('branch', 'name city');
 
-    console.log('New Barber Created:', populated.name);
+    console.log('✅ New Barber Created:', populated.name);
     res.status(201).json(populated);
 
   } catch (error) {
-    console.error('Barber Create Error:', error);
+    console.error('❌ Barber Create Error:', error);
 
     // MongoDB Duplicate Key Error
     if (error.code === 11000) {
@@ -110,7 +110,7 @@ router.get('/', async (req, res) => {
       .sort({ createdAt: -1 });
     res.json(barbers);
   } catch (error) {
-    console.error('Get barbers error:', error);
+    console.error('❌ Get barbers error:', error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });
@@ -125,79 +125,90 @@ router.get('/:id', async (req, res) => {
     if (!barber) return res.status(404).json({ message: 'Barber not found' });
     res.json(barber);
   } catch (error) {
-    console.error('Get barber error:', error);
+    console.error('❌ Get barber error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-// UPDATE barber
+// UPDATE barber - FIXED to handle partial updates
 router.put('/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const { name, experienceYears, gender, specialties, branch, email, password } = req.body;
 
+    console.log('🔄 PUT /api/barbers/:id - Received:', { id, body: req.body });
+
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ message: 'Invalid Barber ID' });
     }
 
-    if (branch && !mongoose.Types.ObjectId.isValid(branch)) {
-      return res.status(400).json({ message: 'Invalid Branch ID' });
-    }
-
-    if (!email) {
-      return res.status(400).json({ message: 'Email required' });
-    }
-
-    const parsedSpecialties = parseSpecialties(specialties || []);
-    if (parsedSpecialties.length === 0) {
-      return res.status(400).json({ message: 'At least one specialty required' });
-    }
-
     // Find existing barber
     const barber = await Barber.findById(id);
-    if (!barber) return res.status(404).json({ message: 'Barber not found' });
-
-    // Check if email changed and if new email is unique
-    const newEmail = email.trim().toLowerCase();
-    if (newEmail !== barber.email) {
-      const existingEmail = await Barber.findOne({ email: newEmail });
-      if (existingEmail) {
-        return res.status(400).json({ message: 'This email is already in use' });
-      }
+    if (!barber) {
+      return res.status(404).json({ message: 'Barber not found' });
     }
 
-    // Update data
+    // Build update object - only update provided fields
     const updatedData = {};
-    if (name) updatedData.name = name.trim();
-    if (experienceYears) updatedData.experienceYears = Number(experienceYears);
-    if (gender) updatedData.gender = gender.toLowerCase();
-    if (specialties) updatedData.specialties = parsedSpecialties;
-    if (branch) updatedData.branch = branch;
-    if (email) updatedData.email = newEmail;
 
-    // Update password if provided
+    if (name !== undefined) updatedData.name = name.trim();
+    if (experienceYears !== undefined) updatedData.experienceYears = Number(experienceYears);
+    if (gender !== undefined) updatedData.gender = gender.toLowerCase();
+    if (branch !== undefined) {
+      if (!mongoose.Types.ObjectId.isValid(branch)) {
+        return res.status(400).json({ message: 'Invalid Branch ID' });
+      }
+      updatedData.branch = branch;
+    }
+
+    // Handle specialties
+    if (specialties !== undefined) {
+      const parsedSpecialties = parseSpecialties(specialties);
+      if (parsedSpecialties.length === 0) {
+        return res.status(400).json({ message: 'At least one specialty required' });
+      }
+      updatedData.specialties = parsedSpecialties;
+    }
+
+    // Handle email change
+    if (email !== undefined) {
+      const newEmail = email.trim().toLowerCase();
+      if (newEmail !== barber.email) {
+        const existingEmail = await Barber.findOne({ email: newEmail });
+        if (existingEmail) {
+          return res.status(400).json({ message: 'This email is already in use' });
+        }
+      }
+      updatedData.email = newEmail;
+    }
+
+    // Handle password change
     if (password && password.trim() && password.length >= 6) {
       updatedData.password = await bcrypt.hash(password.trim(), 10);
     }
 
-    const updated = await Barber.findByIdAndUpdate(id, updatedData, { 
-      new: true, 
-      runValidators: true 
-    });
+    // Perform update
+    const updated = await Barber.findByIdAndUpdate(
+      id, 
+      updatedData, 
+      { 
+        new: true, 
+        runValidators: true 
+      }
+    );
 
     const populated = await Barber.findById(updated._id).populate('branch', 'name city');
-    console.log('Barber Updated:', populated.name);
+    console.log('✅ Barber Updated:', populated.name);
     res.json(populated);
 
   } catch (error) {
-    console.error('Update error:', error);
+    console.error('❌ Update error:', error);
     if (error.code === 11000) {
       return res.status(400).json({ message: 'Barber name or email already exists' });
     }
     res.status(500).json({ message: error.message });
   }
 });
-
 
 // DELETE barber
 router.delete('/:id', async (req, res) => {
@@ -212,10 +223,10 @@ router.delete('/:id', async (req, res) => {
     // Delete from MongoDB
     await Barber.deleteOne({ _id: req.params.id });
     
-    console.log('Barber Deleted:', barber.name);
+    console.log('✅ Barber Deleted:', barber.name);
     res.json({ success: true, message: 'Barber deleted successfully' });
   } catch (error) {
-    console.error('Delete error:', error);
+    console.error('❌ Delete error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });

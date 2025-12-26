@@ -1,19 +1,18 @@
-// Updated services route (services.js)
 import express from 'express';
 import Service from '../models/Service.js';
-import Barber from '../models/Barber.js'; // Added import for Barber model
+import Barber from '../models/Barber.js';
 import { authenticateBranchAdmin, checkPermission } from './auth.js';
 
 const router = express.Router();
 
-// ✅ HELPER: Normalize branches to always be an array
+//  HELPER: Normalize branches to always be an array
 const normalizeBranches = (branches) => {
   if (!branches) return [];
   if (Array.isArray(branches)) return branches;
-  return [branches]; // Convert single value to array
+  return [branches];
 };
 
-// ✅ HELPER: Extract branch ID safely
+//  HELPER: Extract branch ID safely
 const extractBranchId = (branch) => {
   if (typeof branch === 'string') return branch;
   if (branch?._id) return branch._id.toString();
@@ -27,7 +26,7 @@ router.get('/', async (req, res) => {
     console.log(` GET /api/services → ${services.length} services found`);
     res.json(services);
   } catch (error) {
-    console.error('❌ GET services error:', error);
+    console.error('  GET services error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
@@ -45,10 +44,10 @@ router.get('/gender/:gender', async (req, res) => {
       .populate('branches', 'name city')
       .sort({ name: 1 });
     
-    console.log(`✅ GET /api/services/gender/${gender} → ${services.length} services found`);
+    console.log(` GET /api/services/gender/${gender} → ${services.length} services found`);
     res.json(services);
   } catch (error) {
-    console.error('❌ GET services by gender error:', error);
+    console.error('  GET services by gender error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
@@ -62,10 +61,10 @@ router.get('/branch/:branchId', async (req, res) => {
       .populate('branches', 'name city')
       .sort({ gender: 1, name: 1 });
     
-    console.log(`✅ GET /api/services/branch/${branchId} → ${services.length} services found`);
+    console.log(` GET /api/services/branch/${branchId} → ${services.length} services found`);
     res.json(services);
   } catch (error) {
-    console.error('❌ GET services by branch error:', error);
+    console.error('  GET services by branch error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
@@ -74,6 +73,8 @@ router.get('/branch/:branchId', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const { name, duration, price, gender, branches } = req.body;
+
+    console.log('📥 POST /api/services - Received:', req.body);
 
     // Validation
     if (!name || !duration || !price || !gender) {
@@ -100,7 +101,7 @@ router.post('/', async (req, res) => {
       });
     }
 
-    // ✅ Normalize branches to array
+    //  Normalize branches to array
     const normalizedBranches = normalizeBranches(branches);
 
     const service = new Service({ 
@@ -113,32 +114,11 @@ router.post('/', async (req, res) => {
 
     await service.save();
 
-    // ✅ Auto-add to matching barbers' specialties
-    try {
-      const matchingBarbers = await Barber.find({
-        gender: service.gender,
-        branch: { $in: service.branches }
-      });
-
-      let addedCount = 0;
-      for (const b of matchingBarbers) {
-        if (!b.specialties.includes(service.name)) {
-          b.specialties.push(service.name);
-          await b.save();
-          addedCount++;
-        }
-      }
-      console.log(`✅ Auto-added new service "${service.name}" to ${addedCount} matching barbers`);
-    } catch (autoErr) {
-      console.error('❌ Auto-add to barbers error:', autoErr);
-      // Continue without failing the response
-    }
-
     const populated = await Service.findById(service._id).populate('branches', 'name city');
-    console.log('✅ Service created:', service._id, '-', service.name);
+    console.log(' Service created:', service._id, '-', service.name, '- branches:', normalizedBranches.length);
     res.status(201).json(populated);
   } catch (error) {
-    console.error('❌ CREATE service error:', error);
+    console.error('  CREATE service error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
@@ -147,6 +127,8 @@ router.post('/', async (req, res) => {
 router.put('/:id', async (req, res) => {
   try {
     const { name, duration, price, gender, branches } = req.body;
+
+    console.log('📥 PUT /api/services/:id - Received:', { id: req.params.id, body: req.body });
 
     // Find existing service first
     const existingService = await Service.findById(req.params.id);
@@ -167,16 +149,15 @@ router.put('/:id', async (req, res) => {
       });
     }
 
-    // ✅ Normalize branches - handle both array and single values
+    //  Normalize branches - handle both array and single values
     let normalizedBranches = normalizeBranches(branches);
     
     // If branches is provided, use it; otherwise keep existing
     if (!branches || normalizedBranches.length === 0) {
-      // ✅ Keep existing branches if none provided
       normalizedBranches = normalizeBranches(existingService.branches);
     }
 
-    // ✅ Remove duplicates and clean branch IDs
+    //  Remove duplicates and clean branch IDs
     const cleanBranches = [...new Set(
       normalizedBranches
         .map(extractBranchId)
@@ -191,6 +172,8 @@ router.put('/:id', async (req, res) => {
       branches: cleanBranches
     };
 
+    console.log('📤 Updating service with:', updateData);
+
     const service = await Service.findByIdAndUpdate(
       req.params.id, 
       updateData, 
@@ -201,10 +184,10 @@ router.put('/:id', async (req, res) => {
       return res.status(404).json({ message: 'Service not found' });
     }
 
-    console.log('✅ Service updated:', service._id, '- branches:', cleanBranches.length);
+    console.log(' Service updated:', service._id, '- branches:', cleanBranches.length);
     res.json(service);
   } catch (error) {
-    console.error('❌ UPDATE service error:', error);
+    console.error('  UPDATE service error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
@@ -218,28 +201,27 @@ router.delete('/:id', async (req, res) => {
       return res.status(404).json({ message: 'Service not found' });
     }
 
-    console.log('✅ Service deleted:', service._id, '-', service.name);
+    console.log(' Service deleted:', service._id, '-', service.name);
     res.json({ message: 'Service deleted successfully' });
   } catch (error) {
-    console.error('❌ DELETE service error:', error);
+    console.error('  DELETE service error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
 
-// ✅ FIX DATABASE - Convert any non-array branches to arrays
+//  FIX DATABASE - Convert any non-array branches to arrays
 router.post('/fix-branches', async (req, res) => {
   try {
     const services = await Service.find();
     let fixedCount = 0;
 
     for (const service of services) {
-      // Check if branches is not an array
       if (!Array.isArray(service.branches)) {
         const normalizedBranches = normalizeBranches(service.branches);
         service.branches = normalizedBranches;
         await service.save();
         fixedCount++;
-        console.log(`✅ Fixed service: ${service.name} - branches:`, normalizedBranches);
+        console.log(` Fixed service: ${service.name} - branches:`, normalizedBranches);
       }
     }
 
@@ -248,7 +230,7 @@ router.post('/fix-branches', async (req, res) => {
       totalServices: services.length 
     });
   } catch (error) {
-    console.error('❌ Fix branches error:', error);
+    console.error('  Fix branches error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
@@ -278,34 +260,14 @@ router.post('/branch-admin', authenticateBranchAdmin, checkPermission('manage_se
       duration: duration.trim(), 
       price: price.trim(),
       gender: gender.toLowerCase(),
-      branches: [req.branchId] // ✅ Always as array
+      branches: [req.branchId]
     });
 
     await service.save();
-
-    // ✅ Auto-add to matching barbers' specialties
-    try {
-      const matchingBarbers = await Barber.find({
-        gender: service.gender,
-        branch: req.branchId
-      });
-
-      let addedCount = 0;
-      for (const b of matchingBarbers) {
-        if (!b.specialties.includes(service.name)) {
-          b.specialties.push(service.name);
-          await b.save();
-          addedCount++;
-        }
-      }
-      console.log(`✅ Auto-added new service "${service.name}" to ${addedCount} matching barbers in branch`);
-    } catch (autoErr) {
-      console.error('❌ Auto-add to barbers error:', autoErr);
-      // Continue without failing the response
-    }
-
+    console.log(' Branch admin created service:', service.name);
     res.status(201).json(service);
   } catch (error) {
+    console.error('  Branch admin service creation error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
