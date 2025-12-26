@@ -1,4 +1,4 @@
-// backend/models/Barber.js
+// Barber model remains the same (Barber.js)
 import mongoose from 'mongoose';
 
 const barberSchema = new mongoose.Schema({
