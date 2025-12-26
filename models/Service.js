@@ -1,3 +1,4 @@
+// Service model remains the same (Service.js)
 import mongoose from 'mongoose';
 
 const serviceSchema = new mongoose.Schema({

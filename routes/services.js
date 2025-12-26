@@ -1,5 +1,7 @@
+// Updated services route (services.js)
 import express from 'express';
 import Service from '../models/Service.js';
+import Barber from '../models/Barber.js'; // Added import for Barber model
 import { authenticateBranchAdmin, checkPermission } from './auth.js';
 
 const router = express.Router();
@@ -110,6 +112,28 @@ router.post('/', async (req, res) => {
     });
 
     await service.save();
+
+    // ✅ Auto-add to matching barbers' specialties
+    try {
+      const matchingBarbers = await Barber.find({
+        gender: service.gender,
+        branch: { $in: service.branches }
+      });
+
+      let addedCount = 0;
+      for (const b of matchingBarbers) {
+        if (!b.specialties.includes(service.name)) {
+          b.specialties.push(service.name);
+          await b.save();
+          addedCount++;
+        }
+      }
+      console.log(`✅ Auto-added new service "${service.name}" to ${addedCount} matching barbers`);
+    } catch (autoErr) {
+      console.error('❌ Auto-add to barbers error:', autoErr);
+      // Continue without failing the response
+    }
+
     const populated = await Service.findById(service._id).populate('branches', 'name city');
     console.log('✅ Service created:', service._id, '-', service.name);
     res.status(201).json(populated);
@@ -258,6 +282,28 @@ router.post('/branch-admin', authenticateBranchAdmin, checkPermission('manage_se
     });
 
     await service.save();
+
+    // ✅ Auto-add to matching barbers' specialties
+    try {
+      const matchingBarbers = await Barber.find({
+        gender: service.gender,
+        branch: req.branchId
+      });
+
+      let addedCount = 0;
+      for (const b of matchingBarbers) {
+        if (!b.specialties.includes(service.name)) {
+          b.specialties.push(service.name);
+          await b.save();
+          addedCount++;
+        }
+      }
+      console.log(`✅ Auto-added new service "${service.name}" to ${addedCount} matching barbers in branch`);
+    } catch (autoErr) {
+      console.error('❌ Auto-add to barbers error:', autoErr);
+      // Continue without failing the response
+    }
+
     res.status(201).json(service);
   } catch (error) {
     res.status(500).json({ message: 'Server error' });

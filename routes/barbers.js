@@ -136,8 +136,12 @@ router.put('/:id', async (req, res) => {
     const { id } = req.params;
     const { name, experienceYears, gender, specialties, branch, email, password } = req.body;
 
-    if (!mongoose.Types.ObjectId.isValid(id) || !mongoose.Types.ObjectId.isValid(branch)) {
-      return res.status(400).json({ message: 'Invalid ID' });
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: 'Invalid Barber ID' });
+    }
+
+    if (branch && !mongoose.Types.ObjectId.isValid(branch)) {
+      return res.status(400).json({ message: 'Invalid Branch ID' });
     }
 
     if (!email) {
@@ -163,14 +167,13 @@ router.put('/:id', async (req, res) => {
     }
 
     // Update data
-    const updatedData = {
-      name: name.trim(),
-      experienceYears: Number(experienceYears),
-      gender: gender.toLowerCase(),
-      specialties: parsedSpecialties,
-      branch,
-      email: newEmail
-    };
+    const updatedData = {};
+    if (name) updatedData.name = name.trim();
+    if (experienceYears) updatedData.experienceYears = Number(experienceYears);
+    if (gender) updatedData.gender = gender.toLowerCase();
+    if (specialties) updatedData.specialties = parsedSpecialties;
+    if (branch) updatedData.branch = branch;
+    if (email) updatedData.email = newEmail;
 
     // Update password if provided
     if (password && password.trim() && password.length >= 6) {
@@ -217,4 +220,4 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
-export default router;   
+export default router;
