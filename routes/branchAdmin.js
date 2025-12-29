@@ -90,7 +90,7 @@ router.put('/barbers/:id', authenticateBranchAdmin, checkPermission('manage_barb
       return res.status(403).json({ message: 'Unauthorized' });
     }
 
-    const updated = await Barber.findByIdAndUpdate(
+    const updated = await Barber.findByIdAndUpdate(   
       req.params.id,
       req.body,
       { new: true, runValidators: true }
@@ -284,7 +284,7 @@ router.get('/leaves', authenticateBranchAdmin, async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 });
-
+ 
 router.put('/leaves/:id', authenticateBranchAdmin, checkPermission('manage_leaves'), async (req, res) => {
   try {
     const leave = await Leave.findById(req.params.id).populate('barber');

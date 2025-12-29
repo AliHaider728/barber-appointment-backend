@@ -246,8 +246,19 @@ router.get('/branch-admin', authenticateBranchAdmin, checkPermission('manage_ser
   }
 });
 
+// For branch admin - get services for their branch
+router.get('/branch-admin', authenticateBranchAdmin, async (req, res) => {
+  try {
+    const services = await Service.find({ branches: req.branchId })
+      .sort({ gender: 1, name: 1 });
+    res.json(services);
+  } catch (error) {
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // For branch admin - add service for their branch
-router.post('/branch-admin', authenticateBranchAdmin, checkPermission('manage_services'), async (req, res) => {
+router.post('/branch-admin', authenticateBranchAdmin, async (req, res) => {
   try {
     const { name, duration, price, gender } = req.body;
 
@@ -264,10 +275,10 @@ router.post('/branch-admin', authenticateBranchAdmin, checkPermission('manage_se
     });
 
     await service.save();
-    console.log(' Branch admin created service:', service.name);
+    console.log('Branch admin created service:', service.name);
     res.status(201).json(service);
   } catch (error) {
-    console.error('  Branch admin service creation error:', error);
+    console.error('Branch admin service creation error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
