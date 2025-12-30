@@ -74,7 +74,7 @@ router.post('/', async (req, res) => {
   try {
     const { name, duration, price, gender, branches } = req.body;
 
-    console.log('📥 POST /api/services - Received:', req.body);
+    console.log('  POST /api/services - Received:', req.body);
 
     // Validation
     if (!name || !duration || !price || !gender) {
@@ -128,7 +128,7 @@ router.put('/:id', async (req, res) => {
   try {
     const { name, duration, price, gender, branches } = req.body;
 
-    console.log('📥 PUT /api/services/:id - Received:', { id: req.params.id, body: req.body });
+    console.log('  PUT /api/services/:id - Received:', { id: req.params.id, body: req.body });
 
     // Find existing service first
     const existingService = await Service.findById(req.params.id);
@@ -172,7 +172,7 @@ router.put('/:id', async (req, res) => {
       branches: cleanBranches
     };
 
-    console.log('📤 Updating service with:', updateData);
+    console.log('Updating service with:', updateData);
 
     const service = await Service.findByIdAndUpdate(
       req.params.id, 
@@ -221,16 +221,16 @@ router.post('/fix-branches', async (req, res) => {
         service.branches = normalizedBranches;
         await service.save();
         fixedCount++;
-        console.log(` Fixed service: ${service.name} - branches:`, normalizedBranches);
+        console.log(`Fixed service: ${service.name} - branches:`, normalizedBranches);
       }
     }
 
     res.json({ 
-      message: `Fixed ${fixedCount} services`, 
+      message: `${fixedCount} services`, 
       totalServices: services.length 
     });
   } catch (error) {
-    console.error('  Fix branches error:', error);
+    console.error('branches error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
@@ -246,19 +246,8 @@ router.get('/branch-admin', authenticateBranchAdmin, checkPermission('manage_ser
   }
 });
 
-// For branch admin - get services for their branch
-router.get('/branch-admin', authenticateBranchAdmin, async (req, res) => {
-  try {
-    const services = await Service.find({ branches: req.branchId })
-      .sort({ gender: 1, name: 1 });
-    res.json(services);
-  } catch (error) {
-    res.status(500).json({ message: 'Server error' });
-  }
-});
-
 // For branch admin - add service for their branch
-router.post('/branch-admin', authenticateBranchAdmin, async (req, res) => {
+router.post('/branch-admin', authenticateBranchAdmin, checkPermission('manage_services'), async (req, res) => {
   try {
     const { name, duration, price, gender } = req.body;
 
