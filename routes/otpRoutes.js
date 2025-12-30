@@ -25,7 +25,7 @@ const transporter = nodemailer.createTransport({
     user: EMAIL_USER,
     pass: EMAIL_APP_PASSWORD,
   },
-});
+}); 
 
 //   Verify email configuration on startup
 transporter.verify((error) => {
@@ -60,8 +60,6 @@ const checkEmailEnv = (res) => {
  
  
 // ROUTE: Send OTP
- 
-
 router.post('/send-otp', async (req, res) => {
   try {
     const { email, fullName } = req.body;
@@ -89,7 +87,7 @@ router.post('/send-otp', async (req, res) => {
     const mailOptions = {
       from: `"Barber Appointment System" <${EMAIL_USER}>`,
       to: email,
-      subject: '  Email Verification - OTP Code',
+      subject: 'Email Verification - OTP Code',
       html: `
         <h2>Hello ${fullName || 'User'} 👋</h2>
         <p>Your OTP code is:</p>
