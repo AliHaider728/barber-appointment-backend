@@ -5,7 +5,9 @@ import User from '../models/User.js';
 import Barber from '../models/Barber.js';
 import Admin from '../models/Admins.js';
 import nodemailer from 'nodemailer';
- 
+import dotenv from 'dotenv';
+
+dotenv.config()
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET ;
 const otpStore = new Map();
