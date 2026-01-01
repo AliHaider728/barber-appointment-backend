@@ -28,10 +28,8 @@ const adminSchema = new mongoose.Schema({
   assignedBranch: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Branch',
-    // FIX: Remove required function, validate manually
     validate: {
       validator: function(value) {
-        // Only validate if role is branch_admin
         if (this.role === 'branch_admin') {
           return value != null;
         }
@@ -50,14 +48,12 @@ const adminSchema = new mongoose.Schema({
 adminSchema.pre('save', function(next) {
   if (this.isNew || this.isModified('role')) {
     if (this.role === 'branch_admin') {
-      this.permissions = [
-        'view_branch_barbers',
-        'manage_branch_barbers',
-        'view_branch_appointments',
-        'manage_branch_appointments',
-        'manage_branch_shifts',
-        'view_branch_services',
-        'manage_branch_leaves'
+       this.permissions = [
+        'manage_barbers',
+        'manage_appointments',
+        'manage_shifts',
+        'manage_services', 
+        'manage_leaves'
       ];
     } else {
       this.permissions = [
@@ -73,7 +69,6 @@ adminSchema.pre('save', function(next) {
   }
   next();
 });
-
 
 adminSchema.index({ email: 1 });
 adminSchema.index({ assignedBranch: 1 });
