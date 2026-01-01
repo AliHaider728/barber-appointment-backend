@@ -4,7 +4,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { v2 as cloudinary } from 'cloudinary';
 import passport from 'passport';
-//   LOAD ENV FIRST (VERY IMPORTANT)
+//    ENV FIRST (VERY IMPORTANT) 
 dotenv.config();
 // ROUTES
 import authRoutes from './routes/auth.js';

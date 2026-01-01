@@ -74,6 +74,7 @@ adminSchema.pre('save', function(next) {
   next();
 });
 
+
 adminSchema.index({ email: 1 });
 adminSchema.index({ assignedBranch: 1 });
 

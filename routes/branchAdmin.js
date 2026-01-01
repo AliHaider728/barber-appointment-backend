@@ -111,6 +111,7 @@ router.delete('/barbers/:id', authenticateBranchAdmin, checkPermission('manage_b
       return res.status(403).json({ message: 'Unauthorized' });
     }
 
+    
     await Barber.findByIdAndDelete(req.params.id);
     res.json({ message: 'Barber deleted successfully' });
   } catch (err) {
@@ -194,7 +195,7 @@ router.post('/shifts', authenticateBranchAdmin, checkPermission('manage_shifts')
     res.status(500).json({ message: err.message });
   }
 });
-
+ 
 router.put('/shifts/:id', authenticateBranchAdmin, checkPermission('manage_shifts'), async (req, res) => {
   try {
     const shift = await BarberShift.findById(req.params.id).populate('barber');

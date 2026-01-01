@@ -93,7 +93,7 @@ async function handlePaymentSuccess(paymentIntent) {
     const appointment = await Appointment.findOne({ 
       paymentIntentId: paymentIntent.id 
     }).populate('barber');
-
+ 
     if (!appointment) {
       console.error('Appointment not found for payment:', paymentIntent.id);
       return;
@@ -106,7 +106,7 @@ async function handlePaymentSuccess(paymentIntent) {
     const platformFee = (totalAmount * PLATFORM_FEE_PERCENTAGE) / 100;
     const barberAmount = totalAmount - platformFee;
 
-    console.log(`  Amount breakdown:
+    console.log(`Amount breakdown:
       - Total: £${totalAmount}
       - Platform Fee (10%): £${platformFee}
       - Barber Share (90%): £${barberAmount}`);
