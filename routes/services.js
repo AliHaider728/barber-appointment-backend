@@ -112,13 +112,14 @@ router.post('/', async (req, res) => {
       branches: normalizedBranches
     });
 
+    
     await service.save();
 
     const populated = await Service.findById(service._id).populate('branches', 'name city');
-    console.log(' Service created:', service._id, '-', service.name, '- branches:', normalizedBranches.length);
+    console.log('Service created:', service._id, '-', service.name, '- branches:', normalizedBranches.length);
     res.status(201).json(populated);
   } catch (error) {
-    console.error('  CREATE service error:', error);
+    console.error('CREATE service error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
@@ -128,7 +129,7 @@ router.put('/:id', async (req, res) => {
   try {
     const { name, duration, price, gender, branches } = req.body;
 
-    console.log('  PUT /api/services/:id - Received:', { id: req.params.id, body: req.body });
+    console.log('PUT /api/services/:id - Received:', { id: req.params.id, body: req.body });
 
     // Find existing service first
     const existingService = await Service.findById(req.params.id);
@@ -184,7 +185,7 @@ router.put('/:id', async (req, res) => {
       return res.status(404).json({ message: 'Service not found' });
     }
 
-    console.log(' Service updated:', service._id, '- branches:', cleanBranches.length);
+    console.log('Service updated:', service._id, '- branches:', cleanBranches.length);
     res.json(service);
   } catch (error) {
     console.error('  UPDATE service error:', error);
@@ -201,10 +202,10 @@ router.delete('/:id', async (req, res) => {
       return res.status(404).json({ message: 'Service not found' });
     }
 
-    console.log(' Service deleted:', service._id, '-', service.name);
+    console.log('Service deleted:', service._id, '-', service.name);
     res.json({ message: 'Service deleted successfully' });
   } catch (error) {
-    console.error('  DELETE service error:', error);
+    console.error('DELETE service error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
@@ -262,7 +263,7 @@ router.post('/branch-admin', authenticateBranchAdmin, checkPermission('manage_se
       gender: gender.toLowerCase(),
       branches: [req.branchId]
     });
-
+ 
     await service.save();
     console.log('Branch admin created service:', service.name);
     res.status(201).json(service);

@@ -25,13 +25,13 @@ router.get('/test-auth', authenticateAdmin, async (req, res) => {
   });
 });
 
-// ✅ Get all admins (with populated branch data)
+//   Get all admins (with populated branch data)
 router.get('/', authenticateAdmin, checkPermission('manage_admins'), async (req, res) => {
   try {
     console.log('[ADMINS] Fetching all admins');
     const admins = await Admin.find()
       .select('-password')
-      .populate('assignedBranch', 'name city address'); // ✅ Populate branch
+      .populate('assignedBranch', 'name city address'); //   Populate branch
     console.log('[ADMINS] Found admins:', admins.length);
     res.json(admins);
   } catch (err) {
@@ -40,7 +40,7 @@ router.get('/', authenticateAdmin, checkPermission('manage_admins'), async (req,
   }
 });
 
-// ✅ Create new admin (with branch validation and default permissions)
+//   Create new admin (with branch validation and default permissions)
 router.post('/', authenticateAdmin, checkPermission('manage_admins'), async (req, res) => {
   try {
     const { fullName, email, password, role, assignedBranch, permissions } = req.body;
@@ -52,7 +52,7 @@ router.post('/', authenticateAdmin, checkPermission('manage_admins'), async (req
       return res.status(400).json({ message: 'All fields are required' });
     }
 
-    // ✅ Validate branch for branch_admin
+    //   Validate branch for branch_admin
     if (role === 'branch_admin' && !assignedBranch) {
       return res.status(400).json({ message: 'Branch is required for Branch Admin' });
     }
@@ -77,7 +77,7 @@ router.post('/', authenticateAdmin, checkPermission('manage_admins'), async (req
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
     
-    // ✅ Create admin with role-based data
+    //   Create admin with role-based data
     const adminData = {
       fullName: fullName.trim(),
       email: email.toLowerCase().trim(),
@@ -93,7 +93,7 @@ router.post('/', authenticateAdmin, checkPermission('manage_admins'), async (req
       ] : [] // Main admin has implicit all
     };
 
-    // ✅ Add branch only for branch_admin
+    //   Add branch only for branch_admin
     if (role === 'branch_admin' && assignedBranch) {
       adminData.assignedBranch = assignedBranch;
     }
@@ -106,7 +106,7 @@ router.post('/', authenticateAdmin, checkPermission('manage_admins'), async (req
     const admin = new Admin(adminData);
     await admin.save();
     
-    // ✅ Return admin with populated branch
+    //   Return admin with populated branch
     const populated = await Admin.findById(admin._id)
       .select('-password')
       .populate('assignedBranch', 'name city address');
@@ -130,7 +130,7 @@ router.post('/', authenticateAdmin, checkPermission('manage_admins'), async (req
   }
 });
 
-// ✅ Update admin (with branch validation and permissions update)
+//   Update admin (with branch validation and permissions update)
 router.put('/:id', authenticateAdmin, checkPermission('manage_admins'), async (req, res) => {
   try {
     const { fullName, email, password, role, assignedBranch, permissions } = req.body;
@@ -149,7 +149,7 @@ router.put('/:id', authenticateAdmin, checkPermission('manage_admins'), async (r
       updates.email = email.toLowerCase().trim();
     }
 
-    // ✅ Update role and branch
+    //   Update role and branch
     if (role) {
       updates.role = role;
       
@@ -164,12 +164,12 @@ router.put('/:id', authenticateAdmin, checkPermission('manage_admins'), async (r
       }
     }
 
-    // ✅ Update branch if provided
+    //   Update branch if provided
     if (assignedBranch !== undefined) {
       updates.assignedBranch = assignedBranch || null;
     }
 
-    // ✅ Update permissions if provided
+    //   Update permissions if provided
     if (permissions !== undefined) {
       updates.permissions = Array.isArray(permissions) ? permissions : [];
     }
@@ -212,6 +212,7 @@ router.put('/:id', authenticateAdmin, checkPermission('manage_admins'), async (r
     res.status(500).json({ message: 'Server error: ' + err.message });
   }
 });
+
 
 // Delete admin
 router.delete('/:id', authenticateAdmin, checkPermission('manage_admins'), async (req, res) => {
