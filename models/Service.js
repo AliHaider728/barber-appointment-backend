@@ -1,36 +1,47 @@
-// Service model remains the same (Service.js)
 import mongoose from 'mongoose';
 
-const serviceSchema = new mongoose.Schema({
-  name: { 
-    type: String, 
-    required: [true, 'Service name is required'], 
-    trim: true 
+const ServiceSchema = new mongoose.Schema({
+  name: {
+    type: String,
+    required: true,
+    trim: true
   },
-  duration: { 
-    type: String, 
-    required: [true, 'Duration is required'], 
-    trim: true 
+  duration: {
+    type: String,
+    required: true,
+    trim: true
   },
-  price: { 
-    type: String, 
-    required: [true, 'Price is required'], 
-    trim: true 
+  price: {
+    type: String,
+    required: true,
+    trim: true
   },
-  gender: { 
-    type: String, 
-    enum: {
-      values: ['male', 'female'],
-      message: 'Gender must be either "male" or "female"'
-    },
-    required: [true, 'Gender (male/female) is required'] 
+  gender: {
+    type: String,
+    enum: ['male', 'female'],
+    required: true,
+    lowercase: true
   },
+  // ✅ NEW: Multiple branches support
   branches: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Branch'
-  }]
-}, { 
-  timestamps: true 
+  }],
+  // ✅ Track who created this service
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Admin'
+  },
+  isGlobal: {
+    type: Boolean,
+    default: false // If true, available to all branches
+  }
+}, {
+  timestamps: true
 });
 
-export default mongoose.model('Service', serviceSchema);
+// ✅ Index for faster queries
+ServiceSchema.index({ name: 1, gender: 1 });
+ServiceSchema.index({ branches: 1 });
+
+export default mongoose.model('Service', ServiceSchema);
