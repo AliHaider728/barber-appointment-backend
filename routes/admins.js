@@ -219,7 +219,7 @@ router.delete('/:id', authenticateAdmin, checkPermission('manage_admins'), async
     if (!admin) {
       return res.status(404).json({ message: 'Admin not found' });
     }
-
+    
     console.log('[ADMINS] Admin deleted successfully:', admin.email);
     res.json({ message: 'Admin deleted successfully' });
   } catch (err) {

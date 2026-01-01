@@ -6,13 +6,17 @@ import Service from './models/Service.js';
 import Barber from './models/Barber.js';
 import BarberShift from './models/BarberShift.js';
 import Admin from './models/Admins.js';
+
 dotenv.config();
 mongoose.set('strictQuery', false);
+
 const maleNames = ['James', 'Ahmed', 'Liam', 'Omar', 'Ryan', 'Hassan', 'Zain', 'Ali'];
 const femaleNames = ['Sarah', 'Emma', 'Aisha', 'Fatima', 'Zara', 'Nadia', 'Hira'];
+
 mongoose.connect(process.env.MONGODB_URI)
   .then(async () => {
-    console.log(' Starting Smart Seeding...');
+    console.log('🚀 Starting Complete Permissions Fix...');
+
     // 1. BRANCHES
     const branchData = [
       { name: 'Deansgate Premium', city: 'Manchester', address: '12 Deansgate', openingHours: '09:00 - 19:00', phone: '+44 161 834 5678' },
@@ -26,7 +30,8 @@ mongoose.connect(process.env.MONGODB_URI)
       if (!branch) branch = await Branch.create(b);
       branches.push(branch);
     }
-    console.log(` Branches ready: ${branches.length}`);
+    console.log(`✅ Branches ready: ${branches.length}`);
+
     // 2. SERVICES
     const serviceData = [
       { name: "Men's Haircut", duration: "30 minutes", price: "£25", gender: "male" },
@@ -42,19 +47,21 @@ mongoose.connect(process.env.MONGODB_URI)
       { name: "Hair Treatment", duration: "45 minutes", price: "£45", gender: "female" },
       { name: "Nail Care", duration: "30 minutes", price: "£20", gender: "female" }
     ];
+
     const allServices = [];
     for (const s of serviceData) {
       let service = await Service.findOne({ name: s.name });
       if (!service) service = await Service.create(s);
       allServices.push(service);
     }
-    console.log(` Services ready: ${allServices.length}`);
-    // Assign all branches to all services (as per your multi-branch requirement)
+    console.log(`✅ Services ready: ${allServices.length}`);
+
     for (const service of allServices) {
       await Service.findByIdAndUpdate(service._id, { branches: branches.map(b => b._id) });
     }
-    console.log(' Assigned all branches to all services');
-    // 3. CREATE/UPDATE ADMIN WITH PASSWORD AND PERMISSIONS
+    console.log('✅ Assigned all branches to all services');
+
+    // 3. FIX MAIN ADMIN
     const adminEmail = 'admin@barbershop.com';
     const adminPassword = 'admin123';
     const hashedPassword = await bcrypt.hash(adminPassword, 10);
@@ -62,48 +69,86 @@ mongoose.connect(process.env.MONGODB_URI)
     let admin = await Admin.findOne({ email: adminEmail });
    
     if (!admin) {
-      // Create new admin WITH full permissions AND role
       admin = await Admin.create({
         email: adminEmail,
         password: hashedPassword,
-        fullName: 'Admin User',
-        role: 'main_admin', // Correct role for your Admin model
-        isActive: true, // CRITICAL: Enable account
-        permissions: ['manage_barbers', 'manage_branches', 'manage_services', 'manage_appointments', 'manage_admins', 'manage_leaves', 'view_analytics']
+        fullName: 'Main Admin',
+        role: 'main_admin',
+        isActive: true,
+        permissions: [
+          'manage_barbers',
+          'manage_branches', 
+          'manage_services',
+          'manage_appointments',
+          'manage_admins',
+          'manage_leaves',
+          'manage_shifts',
+          'view_analytics'
+        ]
       });
-      console.log(' Admin created with password, role, and ALL permissions');
+      console.log('✅ Main Admin created with ALL permissions');
     } else {
-      // Update existing admin - FORCE password, role, and permissions
       admin.password = hashedPassword;
-      admin.fullName = 'Admin User';
-      admin.role = 'main_admin'; // Set correct role
-      admin.isActive = true; // CRITICAL: Activate account
-     
-      // Update permissions
-      admin.permissions = ['manage_barbers', 'manage_branches', 'manage_services', 'manage_appointments', 'manage_admins', 'manage_leaves', 'view_analytics'];
-     
+      admin.fullName = 'Main Admin';
+      admin.role = 'main_admin';
+      admin.isActive = true;
+      admin.permissions = [
+        'manage_barbers',
+        'manage_branches', 
+        'manage_services',
+        'manage_appointments',
+        'manage_admins',
+        'manage_leaves',
+        'manage_shifts',
+        'view_analytics'
+      ];
       await admin.save();
-      console.log(' Admin password, role, isActive, and permissions UPDATED');
+      console.log('✅ Main Admin updated with ALL permissions');
     }
-    // 4. BARBERS - SKIP IF ALREADY EXIST (PRESERVE YOUR DATA)
+
+    // 4. ✅ CRITICAL: FIX ALL BRANCH ADMINS WITH COMPLETE PERMISSIONS
+    const allBranchAdmins = await Admin.find({ role: 'branch_admin' });
+    
+    for (const branchAdmin of allBranchAdmins) {
+      branchAdmin.permissions = [
+        'manage_barbers',      // ✅ For barbers CRUD
+        'manage_appointments', // ✅ For appointments management
+        'manage_shifts',       // ✅ For shift scheduling
+        'manage_services',     // ✅ For services management
+        'manage_leaves'        // ✅ For leave management
+      ];
+      branchAdmin.isActive = true; // ✅ Ensure active
+      await branchAdmin.save();
+      console.log(`✅ Updated Branch Admin: ${branchAdmin.email}`);
+    }
+    
+    if (allBranchAdmins.length > 0) {
+      console.log(`\n🎯 FIXED ${allBranchAdmins.length} Branch Admin(s) with COMPLETE permissions!`);
+    } else {
+      console.log('\n⚠️ No existing Branch Admins found. They will get correct permissions when created.');
+    }
+
+    // 5. BARBERS - SKIP IF ALREADY EXIST
     const existingBarbers = await Barber.countDocuments();
     if (existingBarbers === 0) {
-      console.log('👥 Creating new barbers...');
+      console.log('\n👥 Creating new barbers...');
       const allBarbers = [];
       let barberCounter = 1;
+
       for (const branch of branches) {
         const maleServices = allServices.filter(s => s.gender === 'male');
         const femaleServices = allServices.filter(s => s.gender === 'female');
-        // Create 3 male barbers per branch
+
         for (let i = 0; i < 3; i++) {
           const specialties = maleServices
             .sort(() => 0.5 - Math.random())
             .slice(0, 3 + Math.floor(Math.random() * 2))
             .map(s => s.name);
+
           const barberName = `${maleNames[(i + branches.indexOf(branch)) % maleNames.length]} ${branch.city}`;
-         
           const hashedPassword = await bcrypt.hash('barber123', 10);
-          const barberData = {
+
+          allBarbers.push({
             name: barberName,
             experienceYears: 3 + i + Math.floor(Math.random() * 3),
             gender: 'male',
@@ -111,20 +156,20 @@ mongoose.connect(process.env.MONGODB_URI)
             branch: branch._id,
             email: `barber${barberCounter}@barbershop.com`,
             password: hashedPassword
-          };
-          allBarbers.push(barberData);
+          });
           barberCounter++;
         }
-        // Create 2 female barbers per branch
+
         for (let i = 0; i < 2; i++) {
           const specialties = femaleServices
             .sort(() => 0.5 - Math.random())
             .slice(0, 3 + Math.floor(Math.random() * 2))
             .map(s => s.name);
+
           const barberName = `${femaleNames[(i + branches.indexOf(branch)) % femaleNames.length]} ${branch.city}`;
-         
           const hashedPassword = await bcrypt.hash('barber123', 10);
-          const barberData = {
+
+          allBarbers.push({
             name: barberName,
             experienceYears: 2 + i + Math.floor(Math.random() * 4),
             gender: 'female',
@@ -132,26 +177,29 @@ mongoose.connect(process.env.MONGODB_URI)
             branch: branch._id,
             email: `barber${barberCounter}@barbershop.com`,
             password: hashedPassword
-          };
-          allBarbers.push(barberData);
+          });
           barberCounter++;
         }
       }
+
       const createdBarbers = await Barber.insertMany(allBarbers);
-      console.log(` Barbers created: ${createdBarbers.length}`);
+      console.log(`✅ Barbers created: ${createdBarbers.length}`);
     } else {
-      console.log(` Barbers already exist (${existingBarbers} barbers) - SKIPPING to preserve your data`);
+      console.log(`✅ Barbers already exist (${existingBarbers} barbers) - SKIPPING`);
     }
-    // 5. SHIFTS - SKIP IF ALREADY EXIST (PRESERVE YOUR DATA)
+
+    // 6. SHIFTS - SKIP IF ALREADY EXIST
     const existingShifts = await BarberShift.countDocuments();
     if (existingShifts === 0) {
       console.log('📅 Creating new shifts...');
       const barbers = await Barber.find();
       const shifts = [];
+
       for (const barber of barbers) {
         const branchData = branches.find(b => b._id.equals(barber.branch));
         const [openHour, closeHour] = branchData.openingHours.split(' - ').map(t => parseInt(t.split(':')[0]));
         const isPartTime = Math.random() > 0.7;
+
         for (let day = 1; day <= 5; day++) {
           shifts.push({
             barber: barber._id,
@@ -161,6 +209,7 @@ mongoose.connect(process.env.MONGODB_URI)
             isOff: false
           });
         }
+
         shifts.push({
           barber: barber._id,
           dayOfWeek: 6,
@@ -168,35 +217,51 @@ mongoose.connect(process.env.MONGODB_URI)
           endTime: `${closeHour - 2}:00`,
           isOff: false
         });
+
         shifts.push({
           barber: barber._id,
           dayOfWeek: 0,
           isOff: true
         });
       }
+
       await BarberShift.insertMany(shifts);
-      console.log(` Shifts created: ${shifts.length}`);
+      console.log(`✅ Shifts created: ${shifts.length}`);
     } else {
-      console.log(` Shifts already exist (${existingShifts} shifts) - SKIPPING to preserve your data`);
+      console.log(`✅ Shifts already exist (${existingShifts} shifts) - SKIPPING`);
     }
     
-    console.log('SEEDING COMPLETE!');
-    console.log('LOGIN CREDENTIALS:\n');
+    console.log('\n' + '='.repeat(60));
+    console.log('🎉 COMPLETE PERMISSIONS FIX SUCCESSFUL!');
+    console.log('='.repeat(60));
+    console.log('\n📧 LOGIN CREDENTIALS:\n');
     console.log('MAIN ADMIN:');
-    console.log('Email:admin@barbershop.com');
-    console.log('Password:admin123');
-    console.log('Role:main_admin');
-    console.log('Permissions: ALL (full access)');
-    console.log('Can add new admins via Admin Dashboard\n');
-    console.log('BARBERS (all use same password):');
-    console.log('Email:barber1@barbershop.com to barber15@barbershop.com');
-    console.log('Password: barber123\n');
-    console.log('NOTE: Your existing barbers, shifts, leaves, and appointments');
-    console.log('are PRESERVED and NOT modified.\n');
+    console.log('  Email: admin@barbershop.com');
+    console.log('  Password: admin123');
+    console.log('  Permissions: ALL (8 permissions) ✅\n');
+    
+    if (allBranchAdmins.length > 0) {
+      console.log('BRANCH ADMINS FIXED:');
+      allBranchAdmins.forEach(ba => {
+        console.log(`  ✅ ${ba.email} - 5 permissions`);
+      });
+      console.log('\n  Permissions:');
+      console.log('    • manage_barbers ✅');
+      console.log('    • manage_appointments ✅');
+      console.log('    • manage_shifts ✅');
+      console.log('    • manage_services ✅');
+      console.log('    • manage_leaves ✅\n');
+    }
+    
+    console.log('BARBERS:');
+    console.log('  Email: barber1@barbershop.com to barber15@barbershop.com');
+    console.log('  Password: barber123\n');
+    
+    console.log('⚠️ IMPORTANT: Logout and login again to apply new permissions!\n');
    
     mongoose.connection.close();
   })
   .catch(err => {
-    console.error(' Seed failed:', err.message);
+    console.error('❌ Seed failed:', err.message);
     process.exit(1);
   });
