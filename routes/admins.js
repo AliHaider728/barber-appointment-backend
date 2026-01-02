@@ -2,6 +2,7 @@ import express from 'express';
 import bcrypt from 'bcryptjs';
 import Admin from '../models/Admins.js';
 import { authenticateAdmin, checkPermission } from './auth.js'; 
+import { generateOTP, sendOTPEmail, sendWelcomeEmail } from './../utils/email.js';
 
 const router = express.Router();
 
@@ -26,7 +27,7 @@ router.get('/', authenticateAdmin, checkPermission('manage_admins'), async (req,
   try {
     console.log('[ADMINS] Fetching all admins');
     const admins = await Admin.find()
-      .select('-password')
+      .select('-password -emailVerificationOTP -otpExpiry')
       .populate('assignedBranch', 'name city address');
     console.log('[ADMINS] Found admins:', admins.length);
     res.json(admins);
@@ -36,12 +37,12 @@ router.get('/', authenticateAdmin, checkPermission('manage_admins'), async (req,
   }
 });
 
-// Create new admin
-router.post('/', authenticateAdmin, checkPermission('manage_admins'), async (req, res) => {
+// Step 1: Request admin creation (sends OTP)
+router.post('/request-creation', authenticateAdmin, checkPermission('manage_admins'), async (req, res) => {
   try {
-    const { fullName, email, password, role, assignedBranch, permissions } = req.body;
+    const { fullName, email, password, role, assignedBranch } = req.body;
     
-    console.log('[ADMINS] Create attempt:', { fullName, email, role });
+    console.log('[ADMINS] Creation request:', { fullName, email, role });
     
     if (!fullName || !email || !password) {
       return res.status(400).json({ message: 'All fields are required' });
@@ -56,7 +57,7 @@ router.post('/', authenticateAdmin, checkPermission('manage_admins'), async (req
       return res.status(400).json({ message: 'Invalid email format' });
     }
 
-    // ✅ FIX: Check email existence properly
+    // Check if email already exists
     const existing = await Admin.findOne({ email: email.toLowerCase().trim() });
     if (existing) {
       console.log('[ADMINS] Email already exists:', email);
@@ -67,42 +68,43 @@ router.post('/', authenticateAdmin, checkPermission('manage_admins'), async (req
       return res.status(400).json({ message: 'Password must be at least 6 characters' });
     }
 
+    // Generate OTP
+    const otp = generateOTP();
+    const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
     
+    // Create temporary admin (not verified)
     const adminData = {
       fullName: fullName.trim(),
       email: email.toLowerCase().trim(),
       password: hashedPassword,
       role: role || 'branch_admin',
-      isActive: true,
-      permissions: role === 'branch_admin' ? [
-        'manage_appointments',
-        'manage_barbers',
-        'manage_shifts',
-        'manage_services',
-        'manage_leaves'
-      ] : []
+      isActive: false,
+      isEmailVerified: false,
+      emailVerificationOTP: otp,
+      otpExpiry: otpExpiry
     };
 
     if (role === 'branch_admin' && assignedBranch) {
       adminData.assignedBranch = assignedBranch;
     }
 
-    if (permissions && Array.isArray(permissions)) {
-      adminData.permissions = permissions;
-    }
-
     const admin = new Admin(adminData);
     await admin.save();
+
+    // Send OTP email
+    await sendOTPEmail(email, otp, fullName);
     
-    const populated = await Admin.findById(admin._id)
-      .select('-password')
-      .populate('assignedBranch', 'name city address');
-    
-    console.log('[ADMINS] Admin created successfully:', email);
-    res.status(201).json(populated);
+    console.log('[ADMINS] OTP sent to:', email);
+    res.status(200).json({ 
+      message: 'Verification code sent to email',
+      adminId: admin._id,
+      email: admin.email
+    });
   } catch (err) {
-    console.error('[ADMINS] Create error:', err);
+    console.error('[ADMINS] Request creation error:', err);
     
     if (err.code === 11000) {
       return res.status(400).json({ message: 'Email already exists' });
@@ -113,6 +115,107 @@ router.post('/', authenticateAdmin, checkPermission('manage_admins'), async (req
       return res.status(400).json({ message: messages.join(', ') });
     }
     
+    res.status(500).json({ message: 'Server error: ' + err.message });
+  }
+});
+
+// Step 2: Verify OTP and activate admin
+router.post('/verify-otp', authenticateAdmin, checkPermission('manage_admins'), async (req, res) => {
+  try {
+    const { adminId, otp } = req.body;
+    
+    console.log('[ADMINS] OTP verification attempt:', { adminId, otp });
+    
+    if (!adminId || !otp) {
+      return res.status(400).json({ message: 'Admin ID and OTP are required' });
+    }
+
+    const admin = await Admin.findById(adminId).populate('assignedBranch', 'name city address');
+    
+    if (!admin) {
+      return res.status(404).json({ message: 'Admin not found' });
+    }
+
+    if (admin.isEmailVerified) {
+      return res.status(400).json({ message: 'Email already verified' });
+    }
+
+    if (!admin.emailVerificationOTP) {
+      return res.status(400).json({ message: 'No verification code found. Please request a new one.' });
+    }
+
+    if (admin.otpExpiry < new Date()) {
+      return res.status(400).json({ message: 'Verification code expired. Please request a new one.' });
+    }
+
+    if (admin.emailVerificationOTP !== otp.trim()) {
+      return res.status(400).json({ message: 'Invalid verification code' });
+    }
+
+    // Activate admin
+    admin.isEmailVerified = true;
+    admin.isActive = true;
+    admin.emailVerificationOTP = undefined;
+    admin.otpExpiry = undefined;
+    await admin.save();
+
+    // Send welcome email
+    await sendWelcomeEmail(
+      admin.email, 
+      admin.fullName, 
+      admin.role, 
+      admin.assignedBranch
+    );
+
+    const populated = await Admin.findById(admin._id)
+      .select('-password -emailVerificationOTP -otpExpiry')
+      .populate('assignedBranch', 'name city address');
+    
+    console.log('[ADMINS] Admin verified and activated:', admin.email);
+    res.json({ 
+      message: 'Email verified successfully! Admin account is now active.',
+      admin: populated
+    });
+  } catch (err) {
+    console.error('[ADMINS] OTP verification error:', err);
+    res.status(500).json({ message: 'Server error: ' + err.message });
+  }
+});
+
+// Resend OTP
+router.post('/resend-otp', authenticateAdmin, checkPermission('manage_admins'), async (req, res) => {
+  try {
+    const { adminId } = req.body;
+    
+    if (!adminId) {
+      return res.status(400).json({ message: 'Admin ID is required' });
+    }
+
+    const admin = await Admin.findById(adminId);
+    
+    if (!admin) {
+      return res.status(404).json({ message: 'Admin not found' });
+    }
+
+    if (admin.isEmailVerified) {
+      return res.status(400).json({ message: 'Email already verified' });
+    }
+
+    // Generate new OTP
+    const otp = generateOTP();
+    const otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
+
+    admin.emailVerificationOTP = otp;
+    admin.otpExpiry = otpExpiry;
+    await admin.save();
+
+    // Send OTP email
+    await sendOTPEmail(admin.email, otp, admin.fullName);
+    
+    console.log('[ADMINS] OTP resent to:', admin.email);
+    res.json({ message: 'New verification code sent to email' });
+  } catch (err) {
+    console.error('[ADMINS] Resend OTP error:', err);
     res.status(500).json({ message: 'Server error: ' + err.message });
   }
 });
@@ -134,10 +237,9 @@ router.put('/:id', authenticateAdmin, checkPermission('manage_admins'), async (r
         return res.status(400).json({ message: 'Invalid email format' });
       }
       
-      // ✅ FIX: Check if email exists for OTHER admins only
       const emailExists = await Admin.findOne({ 
         email: email.toLowerCase().trim(),
-        _id: { $ne: req.params.id } // Exclude current admin
+        _id: { $ne: req.params.id }
       });
       
       if (emailExists) {
@@ -180,7 +282,7 @@ router.put('/:id', authenticateAdmin, checkPermission('manage_admins'), async (r
       updates, 
       { new: true, runValidators: true }
     )
-      .select('-password')
+      .select('-password -emailVerificationOTP -otpExpiry')
       .populate('assignedBranch', 'name city address');
     
     if (!admin) {
