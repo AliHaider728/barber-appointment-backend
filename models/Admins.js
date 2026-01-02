@@ -25,6 +25,16 @@ const adminSchema = new mongoose.Schema({
     type: Boolean,
     default: true
   },
+  isEmailVerified: {
+    type: Boolean,
+    default: false
+  },
+  emailVerificationOTP: {
+    type: String
+  },
+  otpExpiry: {
+    type: Date
+  },
   assignedBranch: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Branch',
@@ -48,7 +58,7 @@ const adminSchema = new mongoose.Schema({
 adminSchema.pre('save', function(next) {
   if (this.isNew || this.isModified('role')) {
     if (this.role === 'branch_admin') {
-       this.permissions = [
+      this.permissions = [
         'manage_barbers',
         'manage_appointments',
         'manage_shifts',
