@@ -2,9 +2,25 @@ import express from 'express';
 import bcrypt from 'bcryptjs';
 import Admin from '../models/Admins.js';
 import { authenticateAdmin, checkPermission } from './auth.js'; 
-import { generateOTP, sendOTPEmail, sendWelcomeEmail } from '../utils/email.js';
+import { generateOTP, sendOTPEmail, sendWelcomeEmail } from './../utils/email.js';
 
 const router = express.Router();
+
+// TEST ROUTE
+router.get('/test-auth', authenticateAdmin, async (req, res) => {
+  res.json({
+    success: true,
+    message: 'Authentication working',
+    user: { id: req.user.id, email: req.user.email, role: req.user.role },
+    admin: {
+      id: req.admin._id,
+      email: req.admin.email,
+      fullName: req.admin.fullName,
+      permissions: req.admin.permissions,
+      assignedBranch: req.admin.assignedBranch
+    }
+  });
+});
 
 // Get all admins
 router.get('/', authenticateAdmin, checkPermission('manage_admins'), async (req, res) => {
@@ -21,14 +37,39 @@ router.get('/', authenticateAdmin, checkPermission('manage_admins'), async (req,
   }
 });
 
-// Step 1: Request admin creation (sends OTP)
+// Clean up unverified admins
+router.delete('/cleanup-unverified/:email', authenticateAdmin, checkPermission('manage_admins'), async (req, res) => {
+  try {
+    const { email } = req.params;
+    
+    console.log('[ADMINS] Cleanup request for:', email);
+    
+    // Only delete if NOT verified and NOT active
+    const result = await Admin.deleteOne({ 
+      email: email.toLowerCase().trim(),
+      isEmailVerified: false,
+      isActive: false
+    });
+    
+    if (result.deletedCount > 0) {
+      console.log('[ADMINS] Unverified admin cleaned up:', email);
+      res.json({ message: 'Unverified admin removed successfully' });
+    } else {
+      res.status(404).json({ message: 'No unverified admin found with this email' });
+    }
+  } catch (err) {
+    console.error('[ADMINS] Cleanup error:', err);
+    res.status(500).json({ message: 'Server error: ' + err.message });
+  }
+});
+
+// Step 1: Request admin creation (sends OTP) - WITH AUTO CLEANUP
 router.post('/request-creation', authenticateAdmin, checkPermission('manage_admins'), async (req, res) => {
   try {
     const { fullName, email, password, role, assignedBranch } = req.body;
     
     console.log('[ADMINS] Creation request:', { fullName, email, role });
     
-    // Validation
     if (!fullName || !email || !password) {
       return res.status(400).json({ message: 'All fields are required' });
     }
@@ -37,28 +78,34 @@ router.post('/request-creation', authenticateAdmin, checkPermission('manage_admi
       return res.status(400).json({ message: 'Branch is required for Branch Admin' });
     }
 
-    // Email format validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
       return res.status(400).json({ message: 'Invalid email format' });
     }
 
-    // 🔥 FIX: Check if email already exists (including unverified accounts)
-    const normalizedEmail = email.toLowerCase().trim();
-    const existing = await Admin.findOne({ email: normalizedEmail });
-    
+    const emailLower = email.toLowerCase().trim();
+
+    // Check if email already exists
+    const existing = await Admin.findOne({ email: emailLower });
     if (existing) {
-      if (existing.isEmailVerified) {
-        console.log('[ADMINS] Email already verified and exists:', email);
-        return res.status(400).json({ message: 'This email is already registered with a verified account' });
+      // If unverified and expired, delete it automatically
+      if (!existing.isEmailVerified && !existing.isActive) {
+        if (existing.otpExpiry && existing.otpExpiry < new Date()) {
+          console.log('[ADMINS] Auto-cleaning expired unverified admin:', emailLower);
+          await Admin.deleteOne({ _id: existing._id });
+        } else {
+          return res.status(400).json({ 
+            message: 'An unverified admin with this email already exists. Please wait for OTP to expire or complete verification.',
+            canCleanup: true,
+            existingAdminId: existing._id
+          });
+        }
       } else {
-        // Delete old unverified account and create new one
-        console.log('[ADMINS] Removing old unverified account for:', email);
-        await Admin.findByIdAndDelete(existing._id);
+        console.log('[ADMINS] Active admin already exists:', emailLower);
+        return res.status(400).json({ message: 'Email already exists' });
       }
     }
 
-    // Password validation
     if (password.length < 6) {
       return res.status(400).json({ message: 'Password must be at least 6 characters' });
     }
@@ -73,7 +120,7 @@ router.post('/request-creation', authenticateAdmin, checkPermission('manage_admi
     // Create temporary admin (not verified)
     const adminData = {
       fullName: fullName.trim(),
-      email: normalizedEmail,
+      email: emailLower,
       password: hashedPassword,
       role: role || 'branch_admin',
       isActive: false,
@@ -90,15 +137,9 @@ router.post('/request-creation', authenticateAdmin, checkPermission('manage_admi
     await admin.save();
 
     // Send OTP email
-    try {
-      await sendOTPEmail(normalizedEmail, otp, fullName);
-      console.log('[ADMINS] OTP sent to:', normalizedEmail);
-    } catch (emailError) {
-      // If email fails, delete the created admin
-      await Admin.findByIdAndDelete(admin._id);
-      throw new Error('Failed to send verification email. Please try again.');
-    }
+    await sendOTPEmail(email, otp, fullName);
     
+    console.log('[ADMINS] OTP sent to:', email);
     res.status(200).json({ 
       message: 'Verification code sent to email',
       adminId: admin._id,
@@ -116,7 +157,7 @@ router.post('/request-creation', authenticateAdmin, checkPermission('manage_admi
       return res.status(400).json({ message: messages.join(', ') });
     }
     
-    res.status(500).json({ message: err.message || 'Server error' });
+    res.status(500).json({ message: 'Server error: ' + err.message });
   }
 });
 
@@ -161,17 +202,12 @@ router.post('/verify-otp', authenticateAdmin, checkPermission('manage_admins'), 
     await admin.save();
 
     // Send welcome email
-    try {
-      await sendWelcomeEmail(
-        admin.email, 
-        admin.fullName, 
-        admin.role, 
-        admin.assignedBranch
-      );
-    } catch (emailError) {
-      console.error('[ADMINS] Welcome email failed:', emailError);
-      // Don't fail the verification if welcome email fails
-    }
+    await sendWelcomeEmail(
+      admin.email, 
+      admin.fullName, 
+      admin.role, 
+      admin.assignedBranch
+    );
 
     const populated = await Admin.findById(admin._id)
       .select('-password -emailVerificationOTP -otpExpiry')
@@ -243,10 +279,8 @@ router.put('/:id', authenticateAdmin, checkPermission('manage_admins'), async (r
         return res.status(400).json({ message: 'Invalid email format' });
       }
       
-      const normalizedEmail = email.toLowerCase().trim();
-      
       const emailExists = await Admin.findOne({ 
-        email: normalizedEmail,
+        email: email.toLowerCase().trim(),
         _id: { $ne: req.params.id }
       });
       
@@ -254,7 +288,7 @@ router.put('/:id', authenticateAdmin, checkPermission('manage_admins'), async (r
         return res.status(400).json({ message: 'Email already exists' });
       }
       
-      updates.email = normalizedEmail;
+      updates.email = email.toLowerCase().trim();
     }
 
     if (role) {

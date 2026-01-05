@@ -73,7 +73,7 @@ router.post('/send-otp', async (req, res) => {
     if (!checkEmailEnv(res)) return;
 
     const otp = generateOTP();
-    const expiryTime = Date.now() + 2 * 60 * 1000; // 2 minutes
+    const expiryTime = Date.now() + 10 * 60 * 1000; // 10 minutes (fixed from 2 minutes)
 
     otpStore.set(email, {
       otp,
@@ -124,7 +124,7 @@ router.post('/verify-otp', (req, res) => {
     const data = otpStore.get(email);
 
     if (!data) {
-      return res.status(400).json({ success: false, message: 'OTP not found' });
+      return res.status(400).json({ success: false, message: 'OTP not found or expired' });
     }
 
     if (Date.now() > data.expiryTime) {
@@ -164,10 +164,11 @@ router.post('/resend-otp', async (req, res) => {
 
     if (!checkEmailEnv(res)) return;
 
+    // Delete old OTP
     otpStore.delete(email);
 
     const otp = generateOTP();
-    const expiryTime = Date.now() + 10 * 60 * 1000;
+    const expiryTime = Date.now() + 10 * 60 * 1000; // 10 minutes
 
     otpStore.set(email, {
       otp,
@@ -179,8 +180,13 @@ router.post('/resend-otp', async (req, res) => {
     const mailOptions = {
       from: `"Barber Appointment System" <${EMAIL_USER}>`,
       to: email,
-      subject: '  New OTP Code',
-      html: `<h2>Your new OTP is: <b>${otp}</b></h2>`,
+      subject: 'New OTP Code',
+      html: `
+        <h2>Hello ${fullName || 'User'} 👋</h2>
+        <p>Your new OTP code is:</p>
+        <h1 style="letter-spacing:8px;">${otp}</h1>
+        <p>This code will expire in 10 minutes.</p>
+      `,
     };
 
     await transporter.sendMail(mailOptions);
