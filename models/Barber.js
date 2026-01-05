@@ -1,4 +1,4 @@
-// models/Barber.js (updated with verification fields like Admin)
+// Barber model remains the same (Barber.js)
 import mongoose from 'mongoose';
 
 const barberSchema = new mongoose.Schema({
@@ -14,7 +14,10 @@ const barberSchema = new mongoose.Schema({
     lowercase: true,
     trim: true
   },
-  password: String, // will be set after verification
+  password: {
+    type: String,
+    required: true
+  },
   experienceYears: { 
     type: Number, 
     required: true 
@@ -43,14 +46,8 @@ const barberSchema = new mongoose.Schema({
   },
   isActive: {
     type: Boolean,
-    default: false  // Starts as false until verified and setup
-  },
-  isEmailVerified: {
-    type: Boolean,
-    default: false
-  },
-  emailVerificationOTP: String,
-  otpExpiry: Date
+    default: true
+  }
 }, { timestamps: true });
 
 // Indexes for faster lookups
