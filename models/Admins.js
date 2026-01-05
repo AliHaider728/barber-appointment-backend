@@ -9,8 +9,7 @@ const adminSchema = new mongoose.Schema({
     trim: true
   },
   password: {
-    type: String,
-    required: true
+    type: String
   },
   fullName: { 
     type: String,
@@ -18,12 +17,11 @@ const adminSchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ['main_admin', 'branch_admin'],
-    default: 'branch_admin'
+    enum: ['main_admin', 'branch_admin']
   },
   isActive: {
     type: Boolean,
-    default: true
+    default: false
   },
   isEmailVerified: {
     type: Boolean,
@@ -56,7 +54,7 @@ const adminSchema = new mongoose.Schema({
 
 // Pre-save hook to set permissions
 adminSchema.pre('save', function(next) {
-  if (this.isNew || this.isModified('role')) {
+  if (this.role && (this.isNew || this.isModified('role'))) {
     if (this.role === 'branch_admin') {
       this.permissions = [
         'manage_barbers',
