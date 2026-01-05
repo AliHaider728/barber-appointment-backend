@@ -2,25 +2,9 @@ import express from 'express';
 import bcrypt from 'bcryptjs';
 import Admin from '../models/Admins.js';
 import { authenticateAdmin, checkPermission } from './auth.js'; 
-import { generateOTP, sendOTPEmail, sendWelcomeEmail } from './../utils/email.js';
+import { generateOTP, sendOTPEmail, sendWelcomeEmail } from '../utils/email.js';
 
 const router = express.Router();
-
-// TEST ROUTE
-router.get('/test-auth', authenticateAdmin, async (req, res) => {
-  res.json({
-    success: true,
-    message: 'Authentication working',
-    user: { id: req.user.id, email: req.user.email, role: req.user.role },
-    admin: {
-      id: req.admin._id,
-      email: req.admin.email,
-      fullName: req.admin.fullName,
-      permissions: req.admin.permissions,
-      assignedBranch: req.admin.assignedBranch
-    }
-  });
-});
 
 // Get all admins
 router.get('/', authenticateAdmin, checkPermission('manage_admins'), async (req, res) => {
@@ -44,6 +28,7 @@ router.post('/request-creation', authenticateAdmin, checkPermission('manage_admi
     
     console.log('[ADMINS] Creation request:', { fullName, email, role });
     
+    // Validation
     if (!fullName || !email || !password) {
       return res.status(400).json({ message: 'All fields are required' });
     }
@@ -52,18 +37,28 @@ router.post('/request-creation', authenticateAdmin, checkPermission('manage_admi
       return res.status(400).json({ message: 'Branch is required for Branch Admin' });
     }
 
+    // Email format validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
       return res.status(400).json({ message: 'Invalid email format' });
     }
 
-    // Check if email already exists
-    const existing = await Admin.findOne({ email: email.toLowerCase().trim() });
+    // 🔥 FIX: Check if email already exists (including unverified accounts)
+    const normalizedEmail = email.toLowerCase().trim();
+    const existing = await Admin.findOne({ email: normalizedEmail });
+    
     if (existing) {
-      console.log('[ADMINS] Email already exists:', email);
-      return res.status(400).json({ message: 'Email already exists' });
+      if (existing.isEmailVerified) {
+        console.log('[ADMINS] Email already verified and exists:', email);
+        return res.status(400).json({ message: 'This email is already registered with a verified account' });
+      } else {
+        // Delete old unverified account and create new one
+        console.log('[ADMINS] Removing old unverified account for:', email);
+        await Admin.findByIdAndDelete(existing._id);
+      }
     }
 
+    // Password validation
     if (password.length < 6) {
       return res.status(400).json({ message: 'Password must be at least 6 characters' });
     }
@@ -78,7 +73,7 @@ router.post('/request-creation', authenticateAdmin, checkPermission('manage_admi
     // Create temporary admin (not verified)
     const adminData = {
       fullName: fullName.trim(),
-      email: email.toLowerCase().trim(),
+      email: normalizedEmail,
       password: hashedPassword,
       role: role || 'branch_admin',
       isActive: false,
@@ -95,9 +90,15 @@ router.post('/request-creation', authenticateAdmin, checkPermission('manage_admi
     await admin.save();
 
     // Send OTP email
-    await sendOTPEmail(email, otp, fullName);
+    try {
+      await sendOTPEmail(normalizedEmail, otp, fullName);
+      console.log('[ADMINS] OTP sent to:', normalizedEmail);
+    } catch (emailError) {
+      // If email fails, delete the created admin
+      await Admin.findByIdAndDelete(admin._id);
+      throw new Error('Failed to send verification email. Please try again.');
+    }
     
-    console.log('[ADMINS] OTP sent to:', email);
     res.status(200).json({ 
       message: 'Verification code sent to email',
       adminId: admin._id,
@@ -115,7 +116,7 @@ router.post('/request-creation', authenticateAdmin, checkPermission('manage_admi
       return res.status(400).json({ message: messages.join(', ') });
     }
     
-    res.status(500).json({ message: 'Server error: ' + err.message });
+    res.status(500).json({ message: err.message || 'Server error' });
   }
 });
 
@@ -160,12 +161,17 @@ router.post('/verify-otp', authenticateAdmin, checkPermission('manage_admins'), 
     await admin.save();
 
     // Send welcome email
-    await sendWelcomeEmail(
-      admin.email, 
-      admin.fullName, 
-      admin.role, 
-      admin.assignedBranch
-    );
+    try {
+      await sendWelcomeEmail(
+        admin.email, 
+        admin.fullName, 
+        admin.role, 
+        admin.assignedBranch
+      );
+    } catch (emailError) {
+      console.error('[ADMINS] Welcome email failed:', emailError);
+      // Don't fail the verification if welcome email fails
+    }
 
     const populated = await Admin.findById(admin._id)
       .select('-password -emailVerificationOTP -otpExpiry')
@@ -237,8 +243,10 @@ router.put('/:id', authenticateAdmin, checkPermission('manage_admins'), async (r
         return res.status(400).json({ message: 'Invalid email format' });
       }
       
+      const normalizedEmail = email.toLowerCase().trim();
+      
       const emailExists = await Admin.findOne({ 
-        email: email.toLowerCase().trim(),
+        email: normalizedEmail,
         _id: { $ne: req.params.id }
       });
       
@@ -246,7 +254,7 @@ router.put('/:id', authenticateAdmin, checkPermission('manage_admins'), async (r
         return res.status(400).json({ message: 'Email already exists' });
       }
       
-      updates.email = email.toLowerCase().trim();
+      updates.email = normalizedEmail;
     }
 
     if (role) {
