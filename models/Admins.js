@@ -1,9 +1,9 @@
 import mongoose from 'mongoose';
 
 const adminSchema = new mongoose.Schema({
-  email: { 
+  email: {
     type: String,
-    required: true,
+    required: [true, 'Email is required'],
     lowercase: true,
     trim: true,
     unique: true,
@@ -11,16 +11,16 @@ const adminSchema = new mongoose.Schema({
   },
   password: {
     type: String,
-    required: true
+    required: [function() { return this.isEmailVerified; }, 'Password is required for verified admins']
   },
-  fullName: { 
+  fullName: {
     type: String,
-    required: true
+    required: [true, 'Full name is required']
   },
   role: {
     type: String,
     enum: ['main_admin', 'branch_admin'],
-    required: true
+    required: [function() { return this.isEmailVerified; }, 'Role is required for verified admins']
   },
   isActive: {
     type: Boolean,
@@ -29,6 +29,12 @@ const adminSchema = new mongoose.Schema({
   isEmailVerified: {
     type: Boolean,
     default: false
+  },
+  emailVerificationOTP: {
+    type: String
+  },
+  otpExpiry: {
+    type: Date
   },
   assignedBranch: {
     type: mongoose.Schema.Types.ObjectId,
@@ -41,38 +47,30 @@ const adminSchema = new mongoose.Schema({
   }
 }, { timestamps: true });
 
-/**
- * SAFE PERMISSIONS
- * (does not overwrite existing permissions)
- */
-adminSchema.pre('save', function (next) {
-  if (this.permissions && this.permissions.length > 0) {
-    return next();
+adminSchema.pre('save', function(next) {
+  if (this.isEmailVerified && this.role) {
+    if (this.role === 'branch_admin' && !this.permissions.length) {
+      this.permissions = [
+        'manage_barbers',
+        'manage_appointments',
+        'manage_shifts',
+        'manage_services',
+        'manage_leaves'
+      ];
+    }
+    if (this.role === 'main_admin' && !this.permissions.length) {
+      this.permissions = [
+        'manage_barbers',
+        'manage_branches',
+        'manage_services',
+        'manage_appointments',
+        'manage_admins',
+        'manage_leaves',
+        'manage_shifts',
+        'view_analytics'
+      ];
+    }
   }
-
-  if (this.role === 'branch_admin') {
-    this.permissions = [
-      'manage_barbers',
-      'manage_appointments',
-      'manage_shifts',
-      'manage_services',
-      'manage_leaves'
-    ];
-  }
-
-  if (this.role === 'main_admin') {
-    this.permissions = [
-      'manage_barbers',
-      'manage_branches',
-      'manage_services',
-      'manage_appointments',
-      'manage_admins',
-      'manage_leaves',
-      'manage_shifts',
-      'view_analytics'
-    ];
-  }
-
   next();
 });
 
