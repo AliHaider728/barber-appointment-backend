@@ -1,60 +1,57 @@
-// backend/models/User.js
 import mongoose from 'mongoose';
 
 const userSchema = new mongoose.Schema({
-  googleId: { 
-    type: String, 
-    unique: true, 
-    sparse: true,  // Allow null values for non-Google users
-    required: false
+  name: {
+    type: String,
+    required: [true, 'Name is required']
   },
-  email: { 
-    type: String, 
-    unique: true, 
-    required: true,
+  email: {
+    type: String,
+    required: [true, 'Email is required'],
+    unique: true,
     lowercase: true,
+    trim: true,
+    sparse: true,
+    index: true
+  },
+  phone: {
+    type: String,
+    unique: true,
+    sparse: true,
     trim: true
   },
   password: {
+    type: String
+  },
+  googleId: {
     type: String,
-    required: function() {
-      // Password required only if NOT Google sign-in
-      return !this.googleId;
-    }
+    unique: true,
+    sparse: true
   },
-  fullName: { 
-    type: String,
-    default: 'User'
-  },
-  phone: { 
-    type: String,
-    default: null
-  },
-  role: { 
-    type: String, 
-    enum: ['user'],
-    default: 'user' 
-  },
-  profileImage: {
-    type: String,
-    default: null
-  },
-  address: {
-    type: String,
-    default: null
-  },
-  city: {
-    type: String,
-    default: null
-  },
-  emailVerified: {
+  isEmailVerified: {
     type: Boolean,
     default: false
+  },
+  isPhoneVerified: {
+    type: Boolean,
+    default: false
+  },
+  emailVerificationOTP: String,
+  phoneVerificationOTP: String,
+  otpExpiry: Date,
+  profileImage: String,
+  appointments: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Appointment'
+  }],
+  createdAt: {
+    type: Date,
+    default: Date.now
+  },
+  updatedAt: {
+    type: Date,
+    default: Date.now
   }
 }, { timestamps: true });
-
-// Index for faster lookups
-userSchema.index({ googleId: 1 });
-userSchema.index({ email: 1 });
 
 export default mongoose.model('User', userSchema);

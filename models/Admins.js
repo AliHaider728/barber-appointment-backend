@@ -48,21 +48,6 @@ const adminSchema = new mongoose.Schema({
   }
 }, { timestamps: true });
 
-// Drop existing index and recreate
-adminSchema.pre('save', async function(next) {
-  try {
-    // Remove old index if exists
-    try {
-      await this.constructor.collection.dropIndex('email_1');
-    } catch (err) {
-      // Index may not exist, continue
-    }
-    next();
-  } catch (err) {
-    next(err);
-  }
-});
-
 adminSchema.pre('save', function(next) {
   if (this.isEmailVerified && this.role) {
     if (this.role === 'branch_admin' && !this.permissions.length) {
