@@ -87,21 +87,23 @@ router.post('/request-creation', authenticateAdmin, checkPermission('manage_admi
 
     // Check if email already exists
     const existing = await Admin.findOne({ email: emailLower });
+    
     if (existing) {
-      // If unverified and expired, delete it automatically
+      console.log('[ADMINS] Found existing admin:', {
+        email: existing.email,
+        isActive: existing.isActive,
+        isEmailVerified: existing.isEmailVerified,
+        otpExpiry: existing.otpExpiry
+      });
+
+      // If unverified and inactive, allow cleanup
       if (!existing.isEmailVerified && !existing.isActive) {
-        if (existing.otpExpiry && existing.otpExpiry < new Date()) {
-          console.log('[ADMINS] Auto-cleaning expired unverified admin:', emailLower);
-          await Admin.deleteOne({ _id: existing._id });
-        } else {
-          return res.status(400).json({ 
-            message: 'An unverified admin with this email already exists. Please wait for OTP to expire or complete verification.',
-            canCleanup: true,
-            existingAdminId: existing._id
-          });
-        }
+        console.log('[ADMINS] Auto-cleaning unverified/inactive admin:', emailLower);
+        await Admin.deleteOne({ _id: existing._id });
+        console.log('[ADMINS] Cleanup successful, proceeding with creation');
       } else {
-        console.log('[ADMINS] Active admin already exists:', emailLower);
+        // Active or verified admin exists
+        console.log('[ADMINS] Active/verified admin already exists:', emailLower);
         return res.status(400).json({ message: 'Email already exists' });
       }
     }
@@ -133,8 +135,16 @@ router.post('/request-creation', authenticateAdmin, checkPermission('manage_admi
       adminData.assignedBranch = assignedBranch;
     }
 
+    console.log('[ADMINS] Creating new admin with data:', {
+      email: adminData.email,
+      role: adminData.role,
+      hasAssignedBranch: !!adminData.assignedBranch
+    });
+
     const admin = new Admin(adminData);
     await admin.save();
+
+    console.log('[ADMINS] Admin created successfully, sending OTP email');
 
     // Send OTP email
     await sendOTPEmail(email, otp, fullName);
@@ -147,9 +157,15 @@ router.post('/request-creation', authenticateAdmin, checkPermission('manage_admi
     });
   } catch (err) {
     console.error('[ADMINS] Request creation error:', err);
+    console.error('[ADMINS] Error details:', {
+      name: err.name,
+      message: err.message,
+      code: err.code,
+      stack: err.stack
+    });
     
     if (err.code === 11000) {
-      return res.status(400).json({ message: 'Email already exists' });
+      return res.status(400).json({ message: 'Email already exists (duplicate key error)' });
     }
     
     if (err.name === 'ValidationError') {
