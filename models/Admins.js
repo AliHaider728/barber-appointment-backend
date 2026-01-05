@@ -7,6 +7,7 @@ const adminSchema = new mongoose.Schema({
     lowercase: true,
     trim: true,
     unique: true,
+    sparse: true,
     index: true
   },
   password: {
@@ -46,6 +47,21 @@ const adminSchema = new mongoose.Schema({
     default: []
   }
 }, { timestamps: true });
+
+// Drop existing index and recreate
+adminSchema.pre('save', async function(next) {
+  try {
+    // Remove old index if exists
+    try {
+      await this.constructor.collection.dropIndex('email_1');
+    } catch (err) {
+      // Index may not exist, continue
+    }
+    next();
+  } catch (err) {
+    next(err);
+  }
+});
 
 adminSchema.pre('save', function(next) {
   if (this.isEmailVerified && this.role) {

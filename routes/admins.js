@@ -6,6 +6,33 @@ import { generateOTP, sendOTPEmail, sendWelcomeEmail } from './../utils/email.js
 
 const router = express.Router();
 
+// Clear duplicate emails on startup
+router.get('/admin/clear-duplicates', async (req, res) => {
+  try {
+    const admins = await Admin.find();
+    const emailMap = {};
+    const duplicates = [];
+
+    for (const admin of admins) {
+      if (emailMap[admin.email]) {
+        duplicates.push(admin._id);
+      } else {
+        emailMap[admin.email] = admin._id;
+      }
+    }
+
+    if (duplicates.length > 0) {
+      await Admin.deleteMany({ _id: { $in: duplicates } });
+      console.log('[ADMINS] Deleted duplicate admins:', duplicates.length);
+    }
+
+    res.json({ message: 'Duplicates cleared', deleted: duplicates.length });
+  } catch (err) {
+    console.error('[ADMINS] Clear duplicates error:', err);
+    res.status(500).json({ message: 'Error clearing duplicates' });
+  }
+});
+
 // TEST ROUTE
 router.get('/test-auth', authenticateAdmin, async (req, res) => {
   res.json({
@@ -60,7 +87,7 @@ router.post('/request-creation', authenticateAdmin, checkPermission('manage_admi
     if (admin) {
       if (admin.isEmailVerified) {
         console.log('[ADMINS] Verified email already exists:', email);
-        return res.status(400).json({ message: 'Email already in use by a verified account' });
+        return res.status(400).json({ message: 'Email already in use by a verified account. Use a different email.' });
       } else {
         // Reuse pending admin, update details and send new OTP
         console.log('[ADMINS] Reusing pending admin:', email);
@@ -71,7 +98,6 @@ router.post('/request-creation', authenticateAdmin, checkPermission('manage_admi
         admin.fullName = fullName.trim();
         admin.emailVerificationOTP = otp;
         admin.otpExpiry = otpExpiry;
-        // Reset other fields if needed, but since step 1, keep them unset
         
         await admin.save();
 
@@ -111,8 +137,13 @@ router.post('/request-creation', authenticateAdmin, checkPermission('manage_admi
   } catch (err) {
     console.error('[ADMINS] Request creation error:', err);
     
+    // Handle duplicate key error
     if (err.code === 11000) {
-      return res.status(400).json({ message: 'Email already exists' });
+      const field = Object.keys(err.keyPattern)[0];
+      const value = err.keyValue[field];
+      return res.status(400).json({ 
+        message: `${field} '${value}' already exists. Please use a different ${field}.` 
+      });
     }
     
     if (err.name === 'ValidationError') {
@@ -197,7 +228,6 @@ router.post('/resend-otp', authenticateAdmin, checkPermission('manage_admins'), 
       return res.status(400).json({ message: 'Email already verified' });
     }
 
-    // Generate new OTP
     const otp = generateOTP();
     const otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
 
@@ -205,7 +235,6 @@ router.post('/resend-otp', authenticateAdmin, checkPermission('manage_admins'), 
     admin.otpExpiry = otpExpiry;
     await admin.save();
 
-    // Send OTP email
     await sendOTPEmail(admin.email, otp, admin.fullName);
     
     console.log('[ADMINS] OTP resent to:', admin.email);
@@ -216,7 +245,7 @@ router.post('/resend-otp', authenticateAdmin, checkPermission('manage_admins'), 
   }
 });
 
-// Update admin (also used to complete creation after verification)
+// Update admin
 router.put('/:id', authenticateAdmin, checkPermission('manage_admins'), async (req, res) => {
   try {
     const { fullName, email, password, role, assignedBranch, permissions } = req.body;
@@ -233,16 +262,17 @@ router.put('/:id', authenticateAdmin, checkPermission('manage_admins'), async (r
         return res.status(400).json({ message: 'Invalid email format' });
       }
       
+      const lowerEmail = email.toLowerCase().trim();
       const emailExists = await Admin.findOne({ 
-        email: email.toLowerCase().trim(),
+        email: lowerEmail,
         _id: { $ne: req.params.id }
       });
       
       if (emailExists) {
-        return res.status(400).json({ message: 'Email already exists' });
+        return res.status(400).json({ message: 'Email already in use. Please use a different email.' });
       }
       
-      updates.email = email.toLowerCase().trim();
+      updates.email = lowerEmail;
     }
 
     if (role) {
@@ -284,12 +314,10 @@ router.put('/:id', authenticateAdmin, checkPermission('manage_admins'), async (r
       return res.status(404).json({ message: 'Admin not found' });
     }
 
-    // If this is completing creation: activate if verified and has required fields
     if (!admin.isActive && admin.isEmailVerified && admin.password && admin.role) {
       admin.isActive = true;
       await admin.save();
 
-      // Send welcome email
       await sendWelcomeEmail(
         admin.email, 
         admin.fullName, 
@@ -309,7 +337,11 @@ router.put('/:id', authenticateAdmin, checkPermission('manage_admins'), async (r
     console.error('[ADMINS] Update error:', err);
     
     if (err.code === 11000) {
-      return res.status(400).json({ message: 'Email already exists' });
+      const field = Object.keys(err.keyPattern)[0];
+      const value = err.keyValue[field];
+      return res.status(400).json({ 
+        message: `${field} '${value}' already exists. Please use a different ${field}.` 
+      });
     }
     
     if (err.name === 'ValidationError') {
@@ -341,56 +373,6 @@ router.delete('/:id', authenticateAdmin, checkPermission('manage_admins'), async
   } catch (err) {
     console.error('[ADMINS] Delete error:', err);
     res.status(500).json({ message: 'Server error: ' + err.message });
-  }
-});
-
-// Additional simple create route with error handling for direct creation (if needed)
-router.post('/create', authenticateAdmin, checkPermission('manage_admins'), async (req, res) => {
-  try {
-    const { email, password, fullName, role, assignedBranch } = req.body;
-    
-    // Basic validation
-    if (!email || !password || !fullName || !role) {
-      return res.status(400).json({ message: 'Email, password, full name, and role are required' });
-    }
-    
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      return res.status(400).json({ message: 'Invalid email format' });
-    }
-    
-    if (password.length < 6) {
-      return res.status(400).json({ message: 'Password must be at least 6 characters' });
-    }
-    
-    // Create new admin instance
-    const newAdmin = new Admin({
-      email: email.toLowerCase().trim(),
-      password: await bcrypt.hash(password, 10),
-      fullName: fullName.trim(),
-      role,
-      assignedBranch,
-      isEmailVerified: true, // Assuming direct creation verifies email
-      isActive: true
-    });
-    
-    // Save the admin
-    await newAdmin.save();
-    
-    const populated = await Admin.findById(newAdmin._id)
-      .select('-password -emailVerificationOTP -otpExpiry')
-      .populate('assignedBranch', 'name city address');
-    
-    res.status(201).json({ message: 'Admin created successfully', admin: populated });
-  } catch (error) {
-    // Handle duplicate key error (MongoDB error code 11000 for unique constraint)
-    if (error.code === 11000 && error.keyPattern && error.keyPattern.email) {
-      return res.status(400).json({ message: 'Email already exists. Please use a different email.' });
-    }
-    
-    // Handle other errors
-    console.error(error);
-    res.status(500).json({ message: 'Internal server error' });
   }
 });
 
