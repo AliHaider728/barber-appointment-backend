@@ -1,3 +1,4 @@
+// models/Admin.js
 import mongoose from 'mongoose';
 
 const adminSchema = new mongoose.Schema({
@@ -7,13 +8,9 @@ const adminSchema = new mongoose.Schema({
     lowercase: true,
     trim: true,
     unique: true,
-    sparse: true,
     index: true
   },
-  password: {
-    type: String,
-    required: [function() { return this.isEmailVerified; }, 'Password is required for verified admins']
-  },
+  password: String, // will be set after verification
   fullName: {
     type: String,
     required: [true, 'Full name is required']
@@ -21,7 +18,7 @@ const adminSchema = new mongoose.Schema({
   role: {
     type: String,
     enum: ['main_admin', 'branch_admin'],
-    required: [function() { return this.isEmailVerified; }, 'Role is required for verified admins']
+    default: null // set after verification
   },
   isActive: {
     type: Boolean,
@@ -31,12 +28,8 @@ const adminSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
-  emailVerificationOTP: {
-    type: String
-  },
-  otpExpiry: {
-    type: Date
-  },
+  emailVerificationOTP: String,
+  otpExpiry: Date,
   assignedBranch: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Branch',
@@ -48,9 +41,10 @@ const adminSchema = new mongoose.Schema({
   }
 }, { timestamps: true });
 
+// Auto-set permissions when role is assigned
 adminSchema.pre('save', function(next) {
-  if (this.isEmailVerified && this.role) {
-    if (this.role === 'branch_admin' && !this.permissions.length) {
+  if (this.isModified('role') && this.isEmailVerified && this.role) {
+    if (this.role === 'branch_admin') {
       this.permissions = [
         'manage_barbers',
         'manage_appointments',
@@ -58,8 +52,7 @@ adminSchema.pre('save', function(next) {
         'manage_services',
         'manage_leaves'
       ];
-    }
-    if (this.role === 'main_admin' && !this.permissions.length) {
+    } else if (this.role === 'main_admin') {
       this.permissions = [
         'manage_barbers',
         'manage_branches',

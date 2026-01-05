@@ -1,3 +1,4 @@
+// models/User.js
 import mongoose from 'mongoose';
 
 const userSchema = new mongoose.Schema({
@@ -11,7 +12,6 @@ const userSchema = new mongoose.Schema({
     unique: true,
     lowercase: true,
     trim: true,
-    sparse: true,
     index: true
   },
   phone: {
@@ -20,22 +20,14 @@ const userSchema = new mongoose.Schema({
     sparse: true,
     trim: true
   },
-  password: {
-    type: String
-  },
+  password: String,
   googleId: {
     type: String,
     unique: true,
     sparse: true
   },
-  isEmailVerified: {
-    type: Boolean,
-    default: false
-  },
-  isPhoneVerified: {
-    type: Boolean,
-    default: false
-  },
+  isEmailVerified: { type: Boolean, default: false },
+  isPhoneVerified: { type: Boolean, default: false },
   emailVerificationOTP: String,
   phoneVerificationOTP: String,
   otpExpiry: Date,
@@ -44,14 +36,8 @@ const userSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Appointment'
   }],
-  createdAt: {
-    type: Date,
-    default: Date.now
-  },
-  updatedAt: {
-    type: Date,
-    default: Date.now
-  }
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now }
 }, { timestamps: true });
 
 export default mongoose.model('User', userSchema);
