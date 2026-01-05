@@ -344,4 +344,54 @@ router.delete('/:id', authenticateAdmin, checkPermission('manage_admins'), async
   }
 });
 
+// Additional simple create route with error handling for direct creation (if needed)
+router.post('/create', authenticateAdmin, checkPermission('manage_admins'), async (req, res) => {
+  try {
+    const { email, password, fullName, role, assignedBranch } = req.body;
+    
+    // Basic validation
+    if (!email || !password || !fullName || !role) {
+      return res.status(400).json({ message: 'Email, password, full name, and role are required' });
+    }
+    
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ message: 'Invalid email format' });
+    }
+    
+    if (password.length < 6) {
+      return res.status(400).json({ message: 'Password must be at least 6 characters' });
+    }
+    
+    // Create new admin instance
+    const newAdmin = new Admin({
+      email: email.toLowerCase().trim(),
+      password: await bcrypt.hash(password, 10),
+      fullName: fullName.trim(),
+      role,
+      assignedBranch,
+      isEmailVerified: true, // Assuming direct creation verifies email
+      isActive: true
+    });
+    
+    // Save the admin
+    await newAdmin.save();
+    
+    const populated = await Admin.findById(newAdmin._id)
+      .select('-password -emailVerificationOTP -otpExpiry')
+      .populate('assignedBranch', 'name city address');
+    
+    res.status(201).json({ message: 'Admin created successfully', admin: populated });
+  } catch (error) {
+    // Handle duplicate key error (MongoDB error code 11000 for unique constraint)
+    if (error.code === 11000 && error.keyPattern && error.keyPattern.email) {
+      return res.status(400).json({ message: 'Email already exists. Please use a different email.' });
+    }
+    
+    // Handle other errors
+    console.error(error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
 export default router;
