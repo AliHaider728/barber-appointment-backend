@@ -1,4 +1,4 @@
-// models/Admin.js
+// models/Admin.js (updated to remove default: null for role to avoid enum validation on null)
 import mongoose from 'mongoose';
 
 const adminSchema = new mongoose.Schema({
@@ -17,8 +17,8 @@ const adminSchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ['main_admin', 'branch_admin'],
-    default: null // set after verification
+    enum: ['main_admin', 'branch_admin']
+    // Removed default: null - it will be undefined until set, skipping enum validation
   },
   isActive: {
     type: Boolean,

@@ -1,3 +1,4 @@
+// routes/admin.js (minor update to ensure role is not set prematurely; no changes needed but confirming it's clean)
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import Admin from '../models/Admins.js';

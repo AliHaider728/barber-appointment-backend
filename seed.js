@@ -1,3 +1,4 @@
+// seed.js (updated with index cleanup for supabaseId if it exists, and minor logs)
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import bcrypt from 'bcryptjs';
@@ -16,6 +17,22 @@ const femaleNames = ['Sarah','Emma','Aisha','Fatima','Zara','Nadia','Hira'];
 mongoose.connect(process.env.MONGODB_URI)
 .then(async () => {
   console.log('🚀 Seeding started...');
+
+  // Cleanup lingering supabaseId index if exists
+  try {
+    await Admin.collection.dropIndex('supabaseId_1');
+    console.log('Dropped lingering supabaseId index');
+  } catch (err) {
+    if (err.codeName === 'IndexNotFound') {
+      console.log('supabaseId index already removed');
+    } else {
+      console.error('Error dropping index:', err);
+    }
+  }
+
+  // Remove supabaseId field from all documents if exists
+  await Admin.updateMany({}, { $unset: { supabaseId: '' } });
+  console.log('Removed supabaseId field from admins');
 
   
   // BRANCHES
