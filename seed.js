@@ -1,4 +1,3 @@
-// seed.js (updated with index cleanup for supabaseId if it exists, and minor logs)
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import bcrypt from 'bcryptjs';
@@ -16,23 +15,7 @@ const femaleNames = ['Sarah','Emma','Aisha','Fatima','Zara','Nadia','Hira'];
 
 mongoose.connect(process.env.MONGODB_URI)
 .then(async () => {
-  console.log('🚀 Seeding started...');
-
-  // Cleanup lingering supabaseId index if exists
-  try {
-    await Admin.collection.dropIndex('supabaseId_1');
-    console.log('Dropped lingering supabaseId index');
-  } catch (err) {
-    if (err.codeName === 'IndexNotFound') {
-      console.log('supabaseId index already removed');
-    } else {
-      console.error('Error dropping index:', err);
-    }
-  }
-
-  // Remove supabaseId field from all documents if exists
-  await Admin.updateMany({}, { $unset: { supabaseId: '' } });
-  console.log('Removed supabaseId field from admins');
+  console.log('  Seeding started...');
 
   
   // BRANCHES
@@ -129,7 +112,7 @@ mongoose.connect(process.env.MONGODB_URI)
   console.log(`Branch Admins fixed: ${branchAdmins.length}`);
 
   
-  // BARBERS
+  // BARBERS (updated with isEmailVerified and isActive)
   
   if(await Barber.countDocuments()===0){
     const barbers=[];
@@ -147,7 +130,9 @@ mongoose.connect(process.env.MONGODB_URI)
           specialties:maleServices.slice(0,3).map(s=>s.name),
           branch:branch._id,
           email:`barber${count}@barbershop.com`,
-          password:await bcrypt.hash('barber123',10)
+          password:await bcrypt.hash('barber123',10),
+          isEmailVerified: true,  // Pre-seeded, so verified
+          isActive: true  // Pre-seeded, so active
         });
         count++;
       }
@@ -160,7 +145,9 @@ mongoose.connect(process.env.MONGODB_URI)
           specialties:femaleServices.slice(0,3).map(s=>s.name),
           branch:branch._id,
           email:`barber${count}@barbershop.com`,
-          password:await bcrypt.hash('barber123',10)
+          password:await bcrypt.hash('barber123',10),
+          isEmailVerified: true,  // Pre-seeded, so verified
+          isActive: true  // Pre-seeded, so active
         });
         count++;
       }
