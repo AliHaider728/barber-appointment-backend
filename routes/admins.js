@@ -37,33 +37,7 @@ router.get('/', authenticateAdmin, checkPermission('manage_admins'), async (req,
   }
 });
 
-// Clean up unverified admins
-router.delete('/cleanup-unverified/:email', authenticateAdmin, checkPermission('manage_admins'), async (req, res) => {
-  try {
-    const { email } = req.params;
-    
-    console.log('[ADMINS] Cleanup request for:', email);
-    
-    // Only delete if NOT verified and NOT active
-    const result = await Admin.deleteOne({ 
-      email: email.toLowerCase().trim(),
-      isEmailVerified: false,
-      isActive: false
-    });
-    
-    if (result.deletedCount > 0) {
-      console.log('[ADMINS] Unverified admin cleaned up:', email);
-      res.json({ message: 'Unverified admin removed successfully' });
-    } else {
-      res.status(404).json({ message: 'No unverified admin found with this email' });
-    }
-  } catch (err) {
-    console.error('[ADMINS] Cleanup error:', err);
-    res.status(500).json({ message: 'Server error: ' + err.message });
-  }
-});
-
-// Step 1: Request admin creation (sends OTP) - WITH AUTO CLEANUP
+// Step 1: Request admin creation (sends OTP)
 router.post('/request-creation', authenticateAdmin, checkPermission('manage_admins'), async (req, res) => {
   try {
     const { fullName, email, password, role, assignedBranch } = req.body;
@@ -83,29 +57,11 @@ router.post('/request-creation', authenticateAdmin, checkPermission('manage_admi
       return res.status(400).json({ message: 'Invalid email format' });
     }
 
-    const emailLower = email.toLowerCase().trim();
-
     // Check if email already exists
-    const existing = await Admin.findOne({ email: emailLower });
-    
+    const existing = await Admin.findOne({ email: email.toLowerCase().trim() });
     if (existing) {
-      console.log('[ADMINS] Found existing admin:', {
-        email: existing.email,
-        isActive: existing.isActive,
-        isEmailVerified: existing.isEmailVerified,
-        otpExpiry: existing.otpExpiry
-      });
-
-      // If unverified and inactive, allow cleanup
-      if (!existing.isEmailVerified && !existing.isActive) {
-        console.log('[ADMINS] Auto-cleaning unverified/inactive admin:', emailLower);
-        await Admin.deleteOne({ _id: existing._id });
-        console.log('[ADMINS] Cleanup successful, proceeding with creation');
-      } else {
-        // Active or verified admin exists
-        console.log('[ADMINS] Active/verified admin already exists:', emailLower);
-        return res.status(400).json({ message: 'Email already exists' });
-      }
+      console.log('[ADMINS] Email already exists:', email);
+      return res.status(400).json({ message: 'Email already exists' });
     }
 
     if (password.length < 6) {
@@ -122,7 +78,7 @@ router.post('/request-creation', authenticateAdmin, checkPermission('manage_admi
     // Create temporary admin (not verified)
     const adminData = {
       fullName: fullName.trim(),
-      email: emailLower,
+      email: email.toLowerCase().trim(),
       password: hashedPassword,
       role: role || 'branch_admin',
       isActive: false,
@@ -135,16 +91,8 @@ router.post('/request-creation', authenticateAdmin, checkPermission('manage_admi
       adminData.assignedBranch = assignedBranch;
     }
 
-    console.log('[ADMINS] Creating new admin with data:', {
-      email: adminData.email,
-      role: adminData.role,
-      hasAssignedBranch: !!adminData.assignedBranch
-    });
-
     const admin = new Admin(adminData);
     await admin.save();
-
-    console.log('[ADMINS] Admin created successfully, sending OTP email');
 
     // Send OTP email
     await sendOTPEmail(email, otp, fullName);
@@ -157,15 +105,9 @@ router.post('/request-creation', authenticateAdmin, checkPermission('manage_admi
     });
   } catch (err) {
     console.error('[ADMINS] Request creation error:', err);
-    console.error('[ADMINS] Error details:', {
-      name: err.name,
-      message: err.message,
-      code: err.code,
-      stack: err.stack
-    });
     
     if (err.code === 11000) {
-      return res.status(400).json({ message: 'Email already exists (duplicate key error)' });
+      return res.status(400).json({ message: 'Email already exists' });
     }
     
     if (err.name === 'ValidationError') {
