@@ -13,7 +13,10 @@ const barberSchema = new mongoose.Schema({
     lowercase: true,
     trim: true
   },
-  password: String, // will be set after verification
+  password: {
+    type: String,
+    required: true
+  },
   experienceYears: { 
     type: Number, 
     required: true 
@@ -42,14 +45,8 @@ const barberSchema = new mongoose.Schema({
   },
   isActive: {
     type: Boolean,
-    default: false   
-  },
-  isEmailVerified: {
-    type: Boolean,
-    default: false
-  },
-  emailVerificationOTP: String,
-  otpExpiry: Date
+    default: true
+  }
 }, { timestamps: true });
 
 // Indexes for faster lookups

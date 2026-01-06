@@ -16,7 +16,7 @@ const femaleNames = ['Sarah','Emma','Aisha','Fatima','Zara','Nadia','Hira'];
 
 mongoose.connect(process.env.MONGODB_URI)
 .then(async () => {
-  console.log('🚀 Seeding started...');
+  console.log('  Seeding started...');
 
   // Cleanup lingering supabaseId index if exists
   try {
