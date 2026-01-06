@@ -203,12 +203,12 @@ mongoose.connect(process.env.MONGODB_URI)
     console.log('Shifts already exist');
   }
 
-  console.log('🎉 SEED COMPLETED SUCCESSFULLY');
+  console.log('  SEED COMPLETED SUCCESSFULLY');
   console.log('ADMIN LOGIN → admin@barbershop.com | admin123');
 
   mongoose.connection.close();
 })
 .catch(err=>{
-  console.error('❌ Seed error:',err.message);
+  console.error('  Seed error:',err.message);
   process.exit(1);
 });

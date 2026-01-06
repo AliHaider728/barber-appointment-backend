@@ -394,8 +394,15 @@ router.post('/login', async (req, res) => {
     }
 
     // Check Barber
-    const barber = await Barber.findOne({ email });
+    const barber = await Barber.findOne({ email }).populate('branch');
     if (barber) {
+      if (!barber.isActive) {
+        return res.status(403).json({ message: 'Account is disabled. Contact administrator.' });
+      }
+      if (!barber.isEmailVerified) {
+        return res.status(403).json({ message: 'Email not verified. Please verify your email.' });
+      }
+
       const isMatch = await bcrypt.compare(password, barber.password);
       if (!isMatch) {
         return res.status(401).json({ message: 'Invalid credentials' });
