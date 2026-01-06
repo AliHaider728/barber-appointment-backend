@@ -1,6 +1,6 @@
-// backend/routes/payments.js - ENHANCED VERSION
+// backend/routes/payments.js - COMPLETE SANDBOX VERSION
 import express from 'express';
-import Appointment from '../models/Appointment.js'
+import Appointment from '../models/Appointment.js';
 import Payment from '../models/Payment.js';
 import Barber from '../models/Barber.js';
 import { verifyToken } from './auth.js';
@@ -9,7 +9,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 const router = express.Router();
 
-// Stripe initialization
+// 🧪 STRIPE INITIALIZATION (from .env)
 let stripe = null;
 if (process.env.STRIPE_SECRET_KEY) {
   try {
@@ -17,10 +17,12 @@ if (process.env.STRIPE_SECRET_KEY) {
     stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
       apiVersion: '2023-10-16',
     });
-    console.log('✅ Stripe initialized');
+    console.log('✅ Stripe initialized (Using .env key)');
   } catch (err) {
     console.error('❌ Stripe init failed:', err.message);
   }
+} else {
+  console.error('❌ STRIPE_SECRET_KEY not found in .env file');
 }
 
 const PLATFORM_FEE_PERCENTAGE = 10;
@@ -136,7 +138,10 @@ router.get('/stripe/status', verifyToken, async (req, res) => {
         fullyOnboarded: isFullyOnboarded,
         chargesEnabled: account.charges_enabled,
         payoutsEnabled: account.payouts_enabled,
-        detailsSubmitted: account.details_submitted
+        detailsSubmitted: account.details_submitted,
+        accountType: account.type,
+        country: account.country,
+        email: account.email
       });
     } catch (stripeError) {
       console.error('❌ Invalid Stripe account:', stripeError.message);
@@ -150,7 +155,7 @@ router.get('/stripe/status', verifyToken, async (req, res) => {
   }
 });
 
-/* 🔗 CONNECT STRIPE ACCOUNT */
+/* 🔗 CREATE STRIPE EXPRESS ACCOUNT */
 router.post('/stripe/connect', verifyToken, async (req, res) => {
   try {
     if (!stripe) {
@@ -168,7 +173,11 @@ router.post('/stripe/connect', verifyToken, async (req, res) => {
       try {
         const account = await stripe.accounts.retrieve(barber.stripeAccountId);
         if (account && account.id) {
-          return res.json({ message: 'Already connected', accountId: account.id });
+          return res.json({ 
+            message: 'Already connected', 
+            accountId: account.id,
+            needsOnboarding: !account.details_submitted
+          });
         }
       } catch (error) {
         console.log('⚠️ Existing account invalid, creating new');
@@ -201,15 +210,45 @@ router.post('/stripe/connect', verifyToken, async (req, res) => {
     barber.stripeAccountId = account.id;
     await barber.save();
 
-    // Return account ID - frontend will handle onboarding internally
+    console.log('✅ Express account created:', account.id);
+
     res.json({
       accountId: account.id,
-      message: 'Account created - complete setup in dashboard',
+      message: 'Account created successfully',
       needsOnboarding: true
     });
 
   } catch (error) {
     console.error('❌ Connect error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/* 🔗 CREATE ACCOUNT ONBOARDING LINK */
+router.post('/stripe/onboarding-link', verifyToken, async (req, res) => {
+  try {
+    if (!stripe) {
+      return res.status(503).json({ error: 'Stripe not configured' });
+    }
+
+    const barberId = req.user.barberId || req.user.id;
+    const barber = await Barber.findById(barberId);
+
+    if (!barber || !barber.stripeAccountId) {
+      return res.status(404).json({ error: 'No Stripe account found' });
+    }
+
+    const accountLink = await stripe.accountLinks.create({
+      account: barber.stripeAccountId,
+      refresh_url: `${req.headers.origin || 'http://localhost:5173'}/barber/dashboard?tab=payments`,
+      return_url: `${req.headers.origin || 'http://localhost:5173'}/barber/dashboard?tab=payments&onboarding=complete`,
+      type: 'account_onboarding',
+    });
+
+    res.json({ url: accountLink.url });
+
+  } catch (error) {
+    console.error('❌ Onboarding link error:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -240,7 +279,7 @@ router.get('/stripe/bank-accounts', verifyToken, async (req, res) => {
   }
 });
 
-/* ➕ ADD BANK ACCOUNT (WORKING - Test Mode) */
+/* ➕ ADD BANK ACCOUNT */
 router.post('/stripe/add-bank-account', verifyToken, async (req, res) => {
   try {
     if (!stripe) {
@@ -260,34 +299,34 @@ router.post('/stripe/add-bank-account', verifyToken, async (req, res) => {
       return res.status(404).json({ error: 'No Stripe account found' });
     }
 
-    // For UK bank accounts - Create bank account token
+    // Create bank account token
     const token = await stripe.tokens.create({
       bank_account: {
         country: 'GB',
         currency: 'gbp',
         account_holder_name: accountHolderName,
         account_holder_type: 'individual',
-        routing_number: sortCode, // UK sort code (6 digits)
-        account_number: accountNumber // UK account number (8 digits)
+        routing_number: sortCode.replace(/\s/g, ''), // Remove spaces
+        account_number: accountNumber.replace(/\s/g, '')
       }
     });
 
     console.log('✅ Bank token created:', token.id);
 
-    // Add to Connect account as external account
+    // Add to Connect account
     const bankAccount = await stripe.accounts.createExternalAccount(
       barber.stripeAccountId,
       { external_account: token.id }
     );
 
-    console.log('✅ Bank added to Connect account:', bankAccount.id);
+    console.log('✅ Bank added:', bankAccount.id);
 
-    // Set as default for GBP if requested
+    // Set as default if requested
     if (setAsDefault) {
       await stripe.accounts.update(barber.stripeAccountId, {
         default_for_currency: { gbp: bankAccount.id }
       });
-      console.log('✅ Set as default bank');
+      console.log('✅ Set as default');
     }
 
     res.json({
@@ -295,7 +334,8 @@ router.post('/stripe/add-bank-account', verifyToken, async (req, res) => {
       bankAccount: {
         id: bankAccount.id,
         last4: bankAccount.last4,
-        bank_name: bankAccount.bank_name
+        bank_name: bankAccount.bank_name,
+        routing_number: bankAccount.routing_number
       }
     });
 
@@ -303,12 +343,12 @@ router.post('/stripe/add-bank-account', verifyToken, async (req, res) => {
     console.error('❌ Add bank error:', error);
     res.status(500).json({ 
       error: error.message,
-      details: error.raw?.message || error.code || 'Invalid bank details'
+      details: error.raw?.message || 'Invalid bank details'
     });
   }
 });
 
-/* 🗑️ DELETE BANK ACCOUNT (NEW) */
+/* 🗑️ DELETE BANK ACCOUNT */
 router.delete('/stripe/bank-accounts/:bankId', verifyToken, async (req, res) => {
   try {
     if (!stripe) {
@@ -327,14 +367,14 @@ router.delete('/stripe/bank-accounts/:bankId', verifyToken, async (req, res) => 
       req.params.bankId
     );
 
-    res.json({ message: 'Bank account removed' });
+    res.json({ message: 'Bank account removed successfully' });
   } catch (error) {
     console.error('❌ Delete bank error:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
-/* ⭐ SET DEFAULT BANK (NEW) */
+/* ⭐ SET DEFAULT BANK */
 router.put('/stripe/bank-accounts/:bankId/default', verifyToken, async (req, res) => {
   try {
     if (!stripe) {
@@ -370,13 +410,13 @@ router.post('/stripe/transfer-pending', verifyToken, async (req, res) => {
     const barber = await Barber.findById(barberId);
 
     if (!barber || !barber.stripeAccountId) {
-      return res.status(404).json({ error: 'No Stripe account' });
+      return res.status(404).json({ error: 'No Stripe account linked' });
     }
 
     // Verify account ready
     const account = await stripe.accounts.retrieve(barber.stripeAccountId);
     if (!account.charges_enabled || !account.payouts_enabled) {
-      return res.status(400).json({ error: 'Complete Stripe setup first' });
+      return res.status(400).json({ error: 'Complete Stripe onboarding first' });
     }
 
     // Find pending payments
@@ -387,13 +427,13 @@ router.post('/stripe/transfer-pending', verifyToken, async (req, res) => {
     });
 
     if (pendingPayments.length === 0) {
-      return res.json({ message: 'No pending payments', transferred: 0 });
+      return res.json({ message: 'No pending payments to transfer', transferred: 0 });
     }
 
     let successCount = 0;
     let totalTransferred = 0;
 
-    // Transfer each
+    // Transfer each payment
     for (const payment of pendingPayments) {
       try {
         const transfer = await stripe.transfers.create({
@@ -402,7 +442,8 @@ router.post('/stripe/transfer-pending', verifyToken, async (req, res) => {
           destination: barber.stripeAccountId,
           metadata: {
             paymentId: payment._id.toString(),
-            barberId: barber._id.toString()
+            barberId: barber._id.toString(),
+            barberName: barber.name
           }
         });
 
@@ -421,7 +462,7 @@ router.post('/stripe/transfer-pending', verifyToken, async (req, res) => {
     }
 
     res.json({
-      message: `Transferred ${successCount} payment(s)`,
+      message: `Successfully transferred ${successCount} payment(s)`,
       transferred: successCount,
       total: pendingPayments.length,
       amount: totalTransferred.toFixed(2)
@@ -467,6 +508,30 @@ router.get('/barber/me', verifyToken, async (req, res) => {
     res.json({ payments, summary });
   } catch (error) {
     console.error('❌ Get payments error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/* 🔗 GET STRIPE DASHBOARD LINK (for advanced settings) */
+router.post('/stripe/dashboard-link', verifyToken, async (req, res) => {
+  try {
+    if (!stripe) {
+      return res.status(503).json({ error: 'Stripe not configured' });
+    }
+
+    const barberId = req.user.barberId || req.user.id;
+    const barber = await Barber.findById(barberId);
+
+    if (!barber || !barber.stripeAccountId) {
+      return res.status(404).json({ error: 'No Stripe account found' });
+    }
+
+    const loginLink = await stripe.accounts.createLoginLink(barber.stripeAccountId);
+
+    res.json({ url: loginLink.url });
+
+  } catch (error) {
+    console.error('❌ Dashboard link error:', error);
     res.status(500).json({ error: error.message });
   }
 });

@@ -61,7 +61,7 @@ const paymentSchema = new mongoose.Schema({
   // PAYMENT STATUS
   status: {
     type: String,
-    enum: ['pending', 'succeeded', 'failed', 'refunded', 'transferred'],
+    enum: ['pending', 'succeeded', 'failed', 'refunded'],
     default: 'pending',
     index: true
   },
@@ -102,6 +102,7 @@ const paymentSchema = new mongoose.Schema({
 paymentSchema.index({ barber: 1, status: 1 });
 paymentSchema.index({ appointment: 1 });
 paymentSchema.index({ createdAt: -1 });
+paymentSchema.index({ barber: 1, transferStatus: 1 });
 
 // VIRTUAL - Formatted amounts
 paymentSchema.virtual('formattedTotal').get(function() {
