@@ -1,4 +1,3 @@
-// backend/routes/webhooks.js - COMPLETE WEBHOOK HANDLER
 import express from 'express';
 import Appointment from '../models/Appointment.js';
 import Payment from '../models/Payment.js';
@@ -8,7 +7,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 const router = express.Router();
 
-//   SANDBOX STRIPE INITIALIZATION
+// STRIPE INITIALIZATION
 let stripe = null;
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 if (STRIPE_SECRET_KEY) {
@@ -17,22 +16,19 @@ if (STRIPE_SECRET_KEY) {
     stripe = new Stripe(STRIPE_SECRET_KEY, {
       apiVersion: '2023-10-16',
     });
-    console.log('  Stripe initialized for webhooks (SANDBOX)');
+    console.log('✅ Stripe initialized for webhooks');
   } catch (err) {
-    console.error('  Stripe import failed:', err.message);
+    console.error('❌ Stripe import failed:', err.message);
   }
 }
 
 const PLATFORM_FEE_PERCENTAGE = 10;
-
-//   IMPORTANT: Get this from Stripe Dashboard → Developers → Webhooks
-// For testing, you can leave it empty, but for production use the signing secret
 const WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || '';
 
-/*   MAIN WEBHOOK ENDPOINT */
+/* 🎯 MAIN WEBHOOK ENDPOINT */
 router.post('/stripe', express.raw({ type: 'application/json' }), async (req, res) => {
   if (!stripe) {
-    console.error('  Stripe not configured');
+    console.error('❌ Stripe not configured');
     return res.status(503).json({ error: 'Stripe not configured' });
   }
 
@@ -40,21 +36,20 @@ router.post('/stripe', express.raw({ type: 'application/json' }), async (req, re
   let event;
 
   try {
-    // Verify webhook signature (if secret is configured)
     if (WEBHOOK_SECRET) {
       event = stripe.webhooks.constructEvent(req.body, sig, WEBHOOK_SECRET);
-      console.log(`  Webhook signature verified: ${event.type}`);
+      console.log(`✅ Webhook signature verified: ${event.type}`);
     } else {
-      // For testing without webhook secret
       event = JSON.parse(req.body.toString());
-      console.log(`  Webhook received (no signature verification): ${event.type}`);
+      console.log(`⚠️ Webhook received (NO SIGNATURE): ${event.type}`);
     }
   } catch (err) {
-    console.error('  Webhook signature verification failed:', err.message);
+    console.error('❌ Webhook signature failed:', err.message);
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
-  console.log(`📥 Processing webhook: ${event.type}`);
+  console.log(`\n📨 Processing webhook: ${event.type}`);
+  console.log(`📝 Event ID: ${event.id}`);
 
   try {
     switch (event.type) {
@@ -75,16 +70,12 @@ router.post('/stripe', express.raw({ type: 'application/json' }), async (req, re
         break;
 
       case 'transfer.reversed':
+      case 'transfer.failed':
         await handleTransferReversed(event.data.object);
         break;
 
       case 'transfer.updated':
         await handleTransferUpdated(event.data.object);
-        break;
-
-      case 'transfer.failed':
-        // Legacy event name - same handler
-        await handleTransferReversed(event.data.object);
         break;
 
       default:
@@ -93,50 +84,57 @@ router.post('/stripe', express.raw({ type: 'application/json' }), async (req, re
 
     res.json({ received: true });
   } catch (error) {
-    console.error('  Webhook handler error:', error);
+    console.error('❌ Webhook handler error:', error);
     res.status(500).json({ error: 'Webhook processing failed' });
   }
 });
 
-/*   PAYMENT SUCCESS HANDLER */
+/* 💳 PAYMENT SUCCESS HANDLER - CRITICAL FIX */
 async function handlePaymentSuccess(paymentIntent) {
-  console.log('💰 Processing successful payment:', paymentIntent.id);
+  console.log('\n💰 Processing successful payment');
+  console.log(`   Payment Intent ID: ${paymentIntent.id}`);
+  console.log(`   Amount: £${(paymentIntent.amount / 100).toFixed(2)}`);
 
   try {
-    // Find appointment by payment intent ID
+    // STEP 1: Find appointment
     const appointment = await Appointment.findOne({ 
       paymentIntentId: paymentIntent.id 
     }).populate('barber');
- 
+
     if (!appointment) {
-      console.error('  Appointment not found for payment:', paymentIntent.id);
+      console.error(`❌ CRITICAL: No appointment found for payment ${paymentIntent.id}`);
+      console.log('   This payment will be lost if appointment is not linked!');
       return;
     }
 
-    console.log('  Found appointment:', appointment._id);
+    console.log(`✅ Found appointment: ${appointment._id}`);
+    console.log(`   Customer: ${appointment.customerName}`);
+    console.log(`   Barber: ${appointment.barber?.name}`);
 
-    // Calculate amounts
-    const totalAmount = paymentIntent.amount / 100; // Convert cents to pounds
+    // STEP 2: Calculate amounts
+    const totalAmount = paymentIntent.amount / 100;
     const platformFee = (totalAmount * PLATFORM_FEE_PERCENTAGE) / 100;
     const barberAmount = totalAmount - platformFee;
 
-    console.log(`💵 Amount breakdown:
-      - Total: £${totalAmount}
-      - Platform Fee (10%): £${platformFee}
-      - Barber Share (90%): £${barberAmount}`);
+    console.log(`💵 Amount breakdown:`);
+    console.log(`   Total: £${totalAmount.toFixed(2)}`);
+    console.log(`   Platform Fee (10%): £${platformFee.toFixed(2)}`);
+    console.log(`   Barber Share (90%): £${barberAmount.toFixed(2)}`);
 
-    // Check if payment record already exists
+    // STEP 3: Check if payment record exists
     let payment = await Payment.findOne({ 
       stripePaymentIntentId: paymentIntent.id 
     });
 
-    if (!payment) {
-      // Create payment record
+    if (payment) {
+      console.log(`⚠️ Payment record already exists: ${payment._id}`);
+    } else {
+      // STEP 4: Create payment record - THIS IS THE KEY FIX
       payment = new Payment({
         appointment: appointment._id,
         barber: appointment.barber._id,
-        customerEmail: paymentIntent.receipt_email || appointment.email,
-        customerName: paymentIntent.metadata?.customerName || appointment.customerName,
+        customerEmail: paymentIntent.receipt_email || appointment.email || 'no-email@temp.com',
+        customerName: paymentIntent.metadata?.customerName || appointment.customerName || 'Guest',
         totalAmount,
         platformFee,
         barberAmount,
@@ -147,36 +145,41 @@ async function handlePaymentSuccess(paymentIntent) {
       });
 
       await payment.save();
-      console.log('  Payment record created:', payment._id);
-    } else {
-      console.log('ℹ️ Payment record already exists:', payment._id);
+      console.log(`✅ Payment record CREATED: ${payment._id}`);
+      console.log(`   Barber: ${appointment.barber.name}`);
+      console.log(`   Amount: £${barberAmount.toFixed(2)}`);
     }
 
-    // Update appointment status
-    if (appointment.status === 'pending') {
+    // STEP 5: Update appointment status
+    if (appointment.status !== 'confirmed') {
       appointment.status = 'confirmed';
       appointment.paymentStatus = 'paid';
       await appointment.save();
-      console.log('  Appointment confirmed:', appointment._id);
+      console.log(`✅ Appointment confirmed`);
     }
 
-    // Transfer to barber if they have Stripe account
-    if (appointment.barber.stripeAccountId) {
-      console.log('🔄 Barber has Stripe account - initiating transfer');
+    // STEP 6: Transfer to barber if account ready
+    if (appointment.barber?.stripeAccountId) {
+      console.log(`🏦 Barber has Stripe account: ${appointment.barber.stripeAccountId}`);
       await transferToBarber(payment, appointment.barber);
     } else {
-      console.log(`⏳ Barber "${appointment.barber.name}" has no Stripe account - payment held`);
+      console.log(`⚠️ Barber "${appointment.barber?.name}" has NO Stripe account`);
+      console.log(`   Payment will be held until account is connected`);
     }
 
+    console.log(`\n✅ Payment processing complete for ${paymentIntent.id}\n`);
+
   } catch (error) {
-    console.error('  Error handling payment success:', error);
+    console.error(`❌ Error in handlePaymentSuccess:`, error);
+    console.error(`   Payment Intent: ${paymentIntent.id}`);
+    console.error(`   Error: ${error.message}`);
     throw error;
   }
 }
 
-/*   PAYMENT FAILED HANDLER */
+/* ❌ PAYMENT FAILED HANDLER */
 async function handlePaymentFailed(paymentIntent) {
-  console.log('  Payment failed:', paymentIntent.id);
+  console.log(`\n❌ Payment FAILED: ${paymentIntent.id}`);
 
   try {
     const appointment = await Appointment.findOne({ 
@@ -187,7 +190,7 @@ async function handlePaymentFailed(paymentIntent) {
       appointment.status = 'rejected';
       appointment.paymentStatus = 'failed';
       await appointment.save();
-      console.log('  Appointment marked as rejected:', appointment._id);
+      console.log(`   Appointment marked as rejected`);
     }
 
     const payment = await Payment.findOne({ 
@@ -198,100 +201,54 @@ async function handlePaymentFailed(paymentIntent) {
       payment.status = 'failed';
       payment.errorMessage = paymentIntent.last_payment_error?.message || 'Payment failed';
       await payment.save();
-      console.log('  Payment record updated as failed:', payment._id);
+      console.log(`   Payment record updated as failed`);
     }
 
   } catch (error) {
-    console.error('  Error handling payment failure:', error);
+    console.error(`❌ Error handling payment failure:`, error);
   }
 }
 
-/* 🏦 ACCOUNT UPDATED HANDLER */
-async function handleAccountUpdated(account) {
-  console.log('🔄 Stripe account updated:', account.id);
-
-  try {
-    // Find barber with this Stripe account
-    const barber = await Barber.findOne({ stripeAccountId: account.id });
-
-    if (!barber) {
-      console.log('  Barber not found for account:', account.id);
-      return;
-    }
-
-    console.log('  Found barber:', barber.name);
-
-    // Check if account is now fully onboarded
-    const isFullyOnboarded = account.details_submitted && 
-                            account.charges_enabled && 
-                            account.payouts_enabled;
-
-    if (isFullyOnboarded) {
-      console.log(`  Barber "${barber.name}" is now fully onboarded`);
-      
-      // Transfer all pending payments to this barber
-      await transferPendingPayments(barber);
-    } else {
-      console.log(`⏳ Barber "${barber.name}" onboarding incomplete:
-        - Details submitted: ${account.details_submitted}
-        - Charges enabled: ${account.charges_enabled}
-        - Payouts enabled: ${account.payouts_enabled}`);
-    }
-
-  } catch (error) {
-    console.error('  Error handling account update:', error);
-  }
-}
-
-/* 💸 TRANSFER PENDING PAYMENTS */
-async function transferPendingPayments(barber) {
-  try {
-    // Find all pending payments for this barber
-    const pendingPayments = await Payment.find({
-      barber: barber._id,
-      status: 'succeeded',
-      transferStatus: 'pending'
-    });
-
-    console.log(`📊 Found ${pendingPayments.length} pending payment(s) for "${barber.name}"`);
-
-    // Transfer each payment
-    for (const payment of pendingPayments) {
-      await transferToBarber(payment, barber);
-    }
-
-  } catch (error) {
-    console.error('  Error transferring pending payments:', error);
-  }
-}
-
-/* 💳 TRANSFER TO BARBER */
+/* 🏦 TRANSFER TO BARBER - ENHANCED */
 async function transferToBarber(payment, barber) {
   if (!stripe) {
-    console.error('  Stripe not available for transfer');
+    console.error('❌ Stripe not available');
     return;
   }
 
-  try {
-    console.log(`💸 Transferring £${payment.barberAmount.toFixed(2)} to "${barber.name}"`);
+  console.log(`\n💸 Attempting transfer to barber`);
+  console.log(`   Barber: ${barber.name}`);
+  console.log(`   Amount: £${payment.barberAmount.toFixed(2)}`);
+  console.log(`   Stripe Account: ${barber.stripeAccountId}`);
 
-    // Verify barber has valid Stripe account
+  try {
+    // Verify account is ready
     const account = await stripe.accounts.retrieve(barber.stripeAccountId);
     
+    console.log(`   Account Status:`);
+    console.log(`   - Charges Enabled: ${account.charges_enabled}`);
+    console.log(`   - Payouts Enabled: ${account.payouts_enabled}`);
+    console.log(`   - Details Submitted: ${account.details_submitted}`);
+
     if (!account.charges_enabled || !account.payouts_enabled) {
-      console.log(`⏳ Barber account not ready for transfers yet`);
+      console.log(`⚠️ Account not ready for transfers yet`);
+      payment.transferStatus = 'pending';
+      await payment.save();
       return;
     }
 
     // Create transfer
+    console.log(`   Creating transfer...`);
     const transfer = await stripe.transfers.create({
-      amount: Math.round(payment.barberAmount * 100), // Convert to cents
+      amount: Math.round(payment.barberAmount * 100),
       currency: 'gbp',
       destination: barber.stripeAccountId,
+      description: `Payment for appointment ${payment.appointment}`,
       metadata: {
         paymentId: payment._id.toString(),
         barberId: barber._id.toString(),
-        barberName: barber.name
+        barberName: barber.name,
+        appointmentId: payment.appointment.toString()
       }
     });
 
@@ -300,10 +257,14 @@ async function transferToBarber(payment, barber) {
     payment.transferStatus = 'completed';
     await payment.save();
 
-    console.log('  Transfer successful:', transfer.id);
+    console.log(`✅ Transfer successful!`);
+    console.log(`   Transfer ID: ${transfer.id}`);
+    console.log(`   Status: ${transfer.status}`);
 
   } catch (error) {
-    console.error('  Transfer failed:', error.message);
+    console.error(`❌ Transfer FAILED:`, error.message);
+    console.error(`   Error Type: ${error.type}`);
+    console.error(`   Error Code: ${error.code}`);
     
     payment.transferStatus = 'failed';
     payment.errorMessage = error.message;
@@ -311,29 +272,71 @@ async function transferToBarber(payment, barber) {
   }
 }
 
-/* 📤 TRANSFER CREATED HANDLER */
-async function handleTransferCreated(transfer) {
-  console.log('📤 Transfer created:', transfer.id);
+/* 👤 ACCOUNT UPDATED HANDLER */
+async function handleAccountUpdated(account) {
+  console.log(`\n🏦 Stripe account updated: ${account.id}`);
 
   try {
-    const payment = await Payment.findOne({ 
-      stripeTransferId: transfer.id 
-    });
+    const barber = await Barber.findOne({ stripeAccountId: account.id });
 
-    if (payment && payment.transferStatus === 'pending') {
-      payment.transferStatus = 'completed';
-      await payment.save();
-      console.log('  Payment transfer status updated to completed');
+    if (!barber) {
+      console.log(`   No barber found for account`);
+      return;
+    }
+
+    console.log(`   Barber: ${barber.name}`);
+
+    const isFullyOnboarded = account.details_submitted && 
+                            account.charges_enabled && 
+                            account.payouts_enabled;
+
+    console.log(`   Onboarding Status:`);
+    console.log(`   - Details: ${account.details_submitted}`);
+    console.log(`   - Charges: ${account.charges_enabled}`);
+    console.log(`   - Payouts: ${account.payouts_enabled}`);
+    console.log(`   - Fully Ready: ${isFullyOnboarded}`);
+
+    if (isFullyOnboarded) {
+      console.log(`✅ Account fully onboarded - transferring pending payments`);
+      await transferPendingPayments(barber);
     }
 
   } catch (error) {
-    console.error('  Error handling transfer created:', error);
+    console.error(`❌ Error handling account update:`, error);
   }
 }
 
-/*   TRANSFER REVERSED HANDLER (Updated name) */
+/* 💸 TRANSFER PENDING PAYMENTS */
+async function transferPendingPayments(barber) {
+  try {
+    const pendingPayments = await Payment.find({
+      barber: barber._id,
+      status: 'succeeded',
+      transferStatus: 'pending'
+    });
+
+    console.log(`   Found ${pendingPayments.length} pending payment(s)`);
+
+    for (const payment of pendingPayments) {
+      console.log(`   Processing payment: ${payment._id}`);
+      await transferToBarber(payment, barber);
+    }
+
+  } catch (error) {
+    console.error(`❌ Error transferring pending payments:`, error);
+  }
+}
+
+/* ✅ TRANSFER CREATED */
+async function handleTransferCreated(transfer) {
+  console.log(`\n✅ Transfer created: ${transfer.id}`);
+  console.log(`   Amount: £${(transfer.amount / 100).toFixed(2)}`);
+  console.log(`   Status: ${transfer.status}`);
+}
+
+/* ❌ TRANSFER REVERSED */
 async function handleTransferReversed(transfer) {
-  console.log('  Transfer reversed:', transfer.id);
+  console.log(`\n❌ Transfer reversed/failed: ${transfer.id}`);
 
   try {
     const payment = await Payment.findOne({ 
@@ -344,17 +347,17 @@ async function handleTransferReversed(transfer) {
       payment.transferStatus = 'failed';
       payment.errorMessage = 'Transfer reversed or failed';
       await payment.save();
-      console.log('  Payment transfer status updated to failed');
+      console.log(`   Payment status updated to failed`);
     }
-
   } catch (error) {
-    console.error('  Error handling transfer reversal:', error);
+    console.error(`❌ Error handling transfer reversal:`, error);
   }
 }
 
-/*   TRANSFER UPDATED HANDLER (replaces transfer.paid) */
+/* 🔄 TRANSFER UPDATED */
 async function handleTransferUpdated(transfer) {
-  console.log('🔄 Transfer updated:', transfer.id, '- Status:', transfer.status);
+  console.log(`\n🔄 Transfer updated: ${transfer.id}`);
+  console.log(`   Status: ${transfer.status}`);
 
   try {
     const payment = await Payment.findOne({ 
@@ -362,29 +365,23 @@ async function handleTransferUpdated(transfer) {
     });
 
     if (payment) {
-      // If transfer is paid/completed
       if (transfer.status === 'paid' || transfer.status === 'in_transit') {
-        console.log('  Transfer successfully paid to barber');
-        if (payment.transferStatus !== 'completed') {
-          payment.transferStatus = 'completed';
-          await payment.save();
-        }
-      }
-      // If transfer failed
-      else if (transfer.status === 'failed' || transfer.status === 'canceled') {
+        payment.transferStatus = 'completed';
+        await payment.save();
+        console.log(`   Payment marked as completed`);
+      } else if (transfer.status === 'failed' || transfer.status === 'canceled') {
         payment.transferStatus = 'failed';
         payment.errorMessage = `Transfer ${transfer.status}`;
         await payment.save();
-        console.log('  Transfer failed/canceled');
+        console.log(`   Payment marked as failed`);
       }
     }
-
   } catch (error) {
-    console.error('  Error handling transfer update:', error);
+    console.error(`❌ Error handling transfer update:`, error);
   }
 }
 
-/* 🔄 MANUAL RETRY ENDPOINT (for failed transfers) */
+/* 🔄 MANUAL RETRY ENDPOINT */
 router.post('/retry-transfer/:paymentId', async (req, res) => {
   try {
     const payment = await Payment.findById(req.params.paymentId)
@@ -411,7 +408,7 @@ router.post('/retry-transfer/:paymentId', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('  Retry transfer error:', error);
+    console.error('❌ Retry transfer error:', error);
     res.status(500).json({ error: error.message });
   }
 });

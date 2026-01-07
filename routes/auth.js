@@ -590,7 +590,7 @@ router.post('/google', async (req, res) => {
       { expiresIn: '7d' }
     );
 
-    console.log(' [AUTH] Google login successful:', { email, role });
+    console.log('[AUTH] Google login successful:', { email, role });
 
     res.json({
       token: jwtToken,
@@ -758,7 +758,7 @@ export const checkPermission = (permission) => {
 
     next();
   };
-};
+}; 
 
 export { verifyToken };
 export default router;

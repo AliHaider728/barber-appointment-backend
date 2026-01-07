@@ -17,12 +17,12 @@ if (process.env.STRIPE_SECRET_KEY) {
     stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
       apiVersion: '2023-10-16',
     });
-    console.log('✅ Stripe initialized (Using .env key)');
+    console.log('  Stripe initialized (Using .env key)');
   } catch (err) {
-    console.error('❌ Stripe init failed:', err.message);
+    console.error('  Stripe init failed:', err.message);
   }
 } else {
-  console.error('❌ STRIPE_SECRET_KEY not found in .env file');
+  console.error('  STRIPE_SECRET_KEY not found in .env file');
 }
 
 const PLATFORM_FEE_PERCENTAGE = 10;
@@ -69,7 +69,7 @@ router.post('/create-payment-intent', async (req, res) => {
       barberAmount: barberAmount.toFixed(2)
     });
   } catch (error) {
-    console.error('❌ Payment intent error:', error);
+    console.error('  Payment intent error:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -100,7 +100,7 @@ router.post('/create-appointment-with-payment', async (req, res) => {
     await appointment.save();
     res.status(201).json({ appointment, message: 'Appointment created' });
   } catch (error) {
-    console.error('❌ Appointment error:', error);
+    console.error('  Appointment error:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -144,18 +144,18 @@ router.get('/stripe/status', verifyToken, async (req, res) => {
         email: account.email
       });
     } catch (stripeError) {
-      console.error('❌ Invalid Stripe account:', stripeError.message);
+      console.error('  Invalid Stripe account:', stripeError.message);
       barber.stripeAccountId = null;
       await barber.save();
       return res.json({ connected: false, error: 'Invalid account', needsReconnect: true });
     }
   } catch (error) {
-    console.error('❌ Status check error:', error);
+    console.error('  Status check error:', error);
     res.status(500).json({ connected: false, error: error.message });
   }
 });
 
-/* 🔗 CREATE STRIPE EXPRESS ACCOUNT */
+/*   CREATE STRIPE EXPRESS ACCOUNT */
 router.post('/stripe/connect', verifyToken, async (req, res) => {
   try {
     if (!stripe) {
@@ -210,7 +210,7 @@ router.post('/stripe/connect', verifyToken, async (req, res) => {
     barber.stripeAccountId = account.id;
     await barber.save();
 
-    console.log('✅ Express account created:', account.id);
+    console.log('  Express account created:', account.id);
 
     res.json({
       accountId: account.id,
@@ -219,12 +219,12 @@ router.post('/stripe/connect', verifyToken, async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Connect error:', error);
+    console.error('  Connect error:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
-/* 🔗 CREATE ACCOUNT ONBOARDING LINK */
+/*   CREATE ACCOUNT ONBOARDING LINK */
 router.post('/stripe/onboarding-link', verifyToken, async (req, res) => {
   try {
     if (!stripe) {
@@ -248,7 +248,7 @@ router.post('/stripe/onboarding-link', verifyToken, async (req, res) => {
     res.json({ url: accountLink.url });
 
   } catch (error) {
-    console.error('❌ Onboarding link error:', error);
+    console.error('  Onboarding link error:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -274,7 +274,7 @@ router.get('/stripe/bank-accounts', verifyToken, async (req, res) => {
 
     res.json({ bankAccounts: externalAccounts.data || [] });
   } catch (error) {
-    console.error('❌ Get banks error:', error);
+    console.error('  Get banks error:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -311,7 +311,7 @@ router.post('/stripe/add-bank-account', verifyToken, async (req, res) => {
       }
     });
 
-    console.log('✅ Bank token created:', token.id);
+    console.log('  Bank token created:', token.id);
 
     // Add to Connect account
     const bankAccount = await stripe.accounts.createExternalAccount(
@@ -319,14 +319,14 @@ router.post('/stripe/add-bank-account', verifyToken, async (req, res) => {
       { external_account: token.id }
     );
 
-    console.log('✅ Bank added:', bankAccount.id);
+    console.log('  Bank added:', bankAccount.id);
 
     // Set as default if requested
     if (setAsDefault) {
       await stripe.accounts.update(barber.stripeAccountId, {
         default_for_currency: { gbp: bankAccount.id }
       });
-      console.log('✅ Set as default');
+      console.log('  Set as default');
     }
 
     res.json({
@@ -340,7 +340,7 @@ router.post('/stripe/add-bank-account', verifyToken, async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Add bank error:', error);
+    console.error('  Add bank error:', error);
     res.status(500).json({ 
       error: error.message,
       details: error.raw?.message || 'Invalid bank details'
@@ -348,7 +348,7 @@ router.post('/stripe/add-bank-account', verifyToken, async (req, res) => {
   }
 });
 
-/* 🗑️ DELETE BANK ACCOUNT */
+/*   DELETE BANK ACCOUNT */
 router.delete('/stripe/bank-accounts/:bankId', verifyToken, async (req, res) => {
   try {
     if (!stripe) {
@@ -369,12 +369,12 @@ router.delete('/stripe/bank-accounts/:bankId', verifyToken, async (req, res) => 
 
     res.json({ message: 'Bank account removed successfully' });
   } catch (error) {
-    console.error('❌ Delete bank error:', error);
+    console.error('  Delete bank error:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
-/* ⭐ SET DEFAULT BANK */
+/*   SET DEFAULT BANK */
 router.put('/stripe/bank-accounts/:bankId/default', verifyToken, async (req, res) => {
   try {
     if (!stripe) {
@@ -394,12 +394,12 @@ router.put('/stripe/bank-accounts/:bankId/default', verifyToken, async (req, res
 
     res.json({ message: 'Default bank account updated' });
   } catch (error) {
-    console.error('❌ Set default error:', error);
+    console.error('  Set default error:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
-/* 💸 TRANSFER PENDING PAYMENTS */
+/*   TRANSFER PENDING PAYMENTS */
 router.post('/stripe/transfer-pending', verifyToken, async (req, res) => {
   try {
     if (!stripe) {
@@ -469,12 +469,12 @@ router.post('/stripe/transfer-pending', verifyToken, async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Transfer error:', error);
+    console.error('  Transfer error:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
-/* 💰 GET BARBER PAYMENTS */
+/*  GET BARBER PAYMENTS */
 router.get('/barber/me', verifyToken, async (req, res) => {
   try {
     const barberId = req.user.barberId || req.user.id;
@@ -507,12 +507,12 @@ router.get('/barber/me', verifyToken, async (req, res) => {
 
     res.json({ payments, summary });
   } catch (error) {
-    console.error('❌ Get payments error:', error);
+    console.error('  Get payments error:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
-/* 🔗 GET STRIPE DASHBOARD LINK (for advanced settings) */
+/*   GET STRIPE DASHBOARD LINK (for advanced settings) */
 router.post('/stripe/dashboard-link', verifyToken, async (req, res) => {
   try {
     if (!stripe) {
@@ -531,7 +531,7 @@ router.post('/stripe/dashboard-link', verifyToken, async (req, res) => {
     res.json({ url: loginLink.url });
 
   } catch (error) {
-    console.error('❌ Dashboard link error:', error);
+    console.error('  Dashboard link error:', error);
     res.status(500).json({ error: error.message });
   }
 });

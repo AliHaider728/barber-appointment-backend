@@ -35,7 +35,7 @@ router.post('/', async (req, res) => {
     if (password.length < 6) {
       return res.status(400).json({ 
         success: false,
-        message: 'Password kam se kam 6 characters ka hona chahiye!' 
+        message: 'password must be at least 6 characters long!' 
       });
     }
 
@@ -50,7 +50,7 @@ router.post('/', async (req, res) => {
     if (parsedSpecialties.length === 0) {
       return res.status(400).json({ 
         success: false,
-        message: 'Kam se kam ek service select karo!' 
+        message:  ' at last one  service select karo!' 
       });
     }
 
@@ -81,11 +81,11 @@ router.post('/', async (req, res) => {
 
     const populated = await Barber.findById(barber._id).populate('branch', 'name city');
 
-    console.log('✅ New Barber Created:', populated.name);
+    console.log('  New Barber Created:', populated.name);
     res.status(201).json(populated);
 
   } catch (error) {
-    console.error('❌ Barber Create Error:', error);
+    console.error('  Barber Create Error:', error);
 
     // MongoDB Duplicate Key Error
     if (error.code === 11000) {
@@ -110,7 +110,7 @@ router.get('/', async (req, res) => {
       .sort({ createdAt: -1 });
     res.json(barbers);
   } catch (error) {
-    console.error('❌ Get barbers error:', error);
+    console.error('  Get barbers error:', error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });
@@ -125,7 +125,7 @@ router.get('/:id', async (req, res) => {
     if (!barber) return res.status(404).json({ message: 'Barber not found' });
     res.json(barber);
   } catch (error) {
-    console.error('❌ Get barber error:', error);
+    console.error('  Get barber error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -136,7 +136,7 @@ router.put('/:id', async (req, res) => {
     const { id } = req.params;
     const { name, experienceYears, gender, specialties, branch, email, password } = req.body;
 
-    console.log('🔄 PUT /api/barbers/:id - Received:', { id, body: req.body });
+    console.log(' PUT /api/barbers/:id - Received:', { id, body: req.body });
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ message: 'Invalid Barber ID' });
@@ -198,11 +198,11 @@ router.put('/:id', async (req, res) => {
     );
 
     const populated = await Barber.findById(updated._id).populate('branch', 'name city');
-    console.log('✅ Barber Updated:', populated.name);
+    console.log('  Barber Updated:', populated.name);
     res.json(populated);
 
   } catch (error) {
-    console.error('❌ Update error:', error);
+    console.error('  Update error:', error);
     if (error.code === 11000) {
       return res.status(400).json({ message: 'Barber name or email already exists' });
     }
@@ -223,10 +223,10 @@ router.delete('/:id', async (req, res) => {
     // Delete from MongoDB
     await Barber.deleteOne({ _id: req.params.id });
     
-    console.log('✅ Barber Deleted:', barber.name);
+    console.log('  Barber Deleted:', barber.name);
     res.json({ success: true, message: 'Barber deleted successfully' });
   } catch (error) {
-    console.error('❌ Delete error:', error);
+    console.error('  Delete error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
