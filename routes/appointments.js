@@ -1,11 +1,8 @@
 import express from 'express';
 import Appointment from '../models/Appointment.js';
 import Service from '../models/Service.js';
-import Barber from '../models/Barber.js';
-import Branch from '../models/Branch.js';
 import mongoose from 'mongoose';
 import jwt from 'jsonwebtoken';
-import { sendBookingConfirmation } from '../utils/emailService.js';
 
 const router = express.Router();
 
@@ -15,7 +12,7 @@ const optionalAuth = async (req, res, next) => {
     const token = req.header('Authorization')?.replace('Bearer ', '');
     
     if (token) {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET );
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
       
       // Dynamically import User model
       const User = (await import('../models/User.js')).default;
@@ -72,9 +69,9 @@ router.get('/', optionalAuth, async (req, res) => {
         { email: req.user.email },
         { userId: req.user._id }
       ];
-      console.log('🔍 Filtering appointments for user:', req.user.email);
+      console.log('   Filtering appointments for user:', req.user.email);
     } else {
-      console.log('🔍 No user filter applied (admin/barber or no auth)');
+      console.log('  No user filter applied (admin/barber or no auth)');
     }
     
     // Additional filters
@@ -104,11 +101,11 @@ router.get('/', optionalAuth, async (req, res) => {
       .populate('services.serviceRef', 'name price duration')
       .sort({ date: -1, createdAt: -1 });
 
-    console.log(`✅ Found ${appointments.length} appointments`);
+    console.log(`  Found ${appointments.length} appointments`);
     res.json(appointments);
     
   } catch (error) {
-    console.error('❌ GET appointments error:', error);
+    console.error('  GET appointments error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
@@ -141,7 +138,7 @@ router.get('/:id', optionalAuth, async (req, res) => {
 
     res.json(appointment);
   } catch (error) {
-    console.error('❌ GET appointment error:', error);
+    console.error('  GET appointment error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -172,12 +169,12 @@ router.get('/barber/:barberId/date/:date', async (req, res) => {
 
     res.json(appointments);
   } catch (error) {
-    console.error('❌ GET barber appointments error:', error);
+    console.error('  GET barber appointments error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-// CREATE appointment - NOW WITH EMAIL CONFIRMATION 📧
+// CREATE appointment - Now saves userId if provided
 router.post('/', optionalAuth, async (req, res) => {
   try {
     const {
@@ -191,8 +188,6 @@ router.post('/', optionalAuth, async (req, res) => {
       duration,
       totalPrice
     } = req.body;
-
-    console.log('📝 Creating appointment for:', email);
 
     // Validation
     if (!customerName || !email || !phone || !date || !barber || !branch || !duration) {
@@ -276,56 +271,16 @@ router.post('/', optionalAuth, async (req, res) => {
     const appointment = new Appointment(appointmentData);
     await appointment.save();
 
-    // Populate appointment details for response and email
     const populated = await Appointment.findById(appointment._id)
       .populate('barber', 'name email')
       .populate('branch', 'name city address')
       .populate('services.serviceRef', 'name price duration');
 
-    console.log('✅ Appointment created:', appointment._id);
-
-    // 📧 SEND EMAIL CONFIRMATION (Non-blocking)
-    setImmediate(async () => {
-      try {
-        const appointmentDate = new Date(populated.date);
-        const appointmentTime = appointmentDate.toTimeString().slice(0, 5); // HH:MM format
-
-        const emailData = {
-          customerName: populated.customerName,
-          bookingRef: populated._id.toString(),
-          branchName: populated.branch?.name || 'N/A',
-          branchAddress: populated.branch?.address || 'N/A',
-          barberName: populated.barber?.name || 'N/A',
-          services: populated.services.map(s => ({
-            name: s.name,
-            price: s.price,
-            duration: s.duration
-          })),
-          date: populated.date,
-          time: appointmentTime,
-          duration: populated.duration,
-          totalPrice: populated.totalPrice
-        };
-
-        console.log('📧 Sending confirmation email to:', populated.email);
-
-        const result = await sendBookingConfirmation(populated.email, emailData);
-        
-        if (result.success) {
-          console.log('✅ Booking confirmation email sent successfully');
-          console.log('📬 Message ID:', result.messageId);
-        } else {
-          console.error('❌ Failed to send confirmation email:', result.error);
-        }
-      } catch (emailError) {
-        console.error('❌ Email sending error:', emailError);
-      }
-    });
-
+    console.log('  Appointment created:', appointment._id);
     res.status(201).json(populated);
 
   } catch (error) {
-    console.error('❌ Create appointment error:', error);
+    console.error('  Create appointment error:', error);
     res.status(500).json({ 
       success: false,
       message: 'Failed to create appointment',
@@ -338,7 +293,7 @@ router.post('/', optionalAuth, async (req, res) => {
 router.put('/:id', optionalAuth, async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, paymentStatus, barber } = req.body;
+    const { status, paymentStatus, barber } = req.body; // ← ADDED BARBER FIELD
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ message: 'Invalid appointment ID' });
@@ -376,13 +331,13 @@ router.put('/:id', optionalAuth, async (req, res) => {
       updateData.paymentStatus = paymentStatus;
     }
 
-    // Support barber reassignment for leave conflict resolution
+    // NEW: Support barber reassignment for leave conflict resolution
     if (barber) {
       if (!mongoose.Types.ObjectId.isValid(barber)) {
         return res.status(400).json({ message: 'Invalid barber ID' });
       }
       updateData.barber = barber;
-      console.log('🔄 Reassigning appointment to new barber:', barber);
+      console.log('  Reassigning appointment to new barber:', barber);
     }
 
     const appointment = await Appointment.findByIdAndUpdate(
@@ -394,11 +349,11 @@ router.put('/:id', optionalAuth, async (req, res) => {
       .populate('branch', 'name city address')
       .populate('services.serviceRef', 'name price duration');
 
-    console.log('✅ Appointment updated:', id);
+    console.log('  Appointment updated:', id);
     res.json(appointment);
 
   } catch (error) {
-    console.error('❌ Update appointment error:', error);
+    console.error('  Update appointment error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
@@ -430,14 +385,14 @@ router.delete('/:id', requireAuth, async (req, res) => {
 
     await Appointment.findByIdAndDelete(id);
 
-    console.log('✅ Appointment deleted:', id);
+    console.log('  Appointment deleted:', id);
     res.json({ 
       success: true, 
       message: 'Appointment deleted successfully' 
     });
 
   } catch (error) {
-    console.error('❌ Delete appointment error:', error);
+    console.error('  Delete appointment error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
