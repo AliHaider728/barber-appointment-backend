@@ -3,6 +3,7 @@ import Appointment from '../models/Appointment.js';
 import Service from '../models/Service.js';
 import mongoose from 'mongoose';
 import jwt from 'jsonwebtoken';
+import { sendBookingConfirmation } from '../utils/emailService.js' ;
 
 const router = express.Router();
 
@@ -12,7 +13,7 @@ const optionalAuth = async (req, res, next) => {
     const token = req.header('Authorization')?.replace('Bearer ', '');
     
     if (token) {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'supersecretkey123456789');
       
       // Dynamically import User model
       const User = (await import('../models/User.js')).default;
@@ -46,7 +47,6 @@ const requireAuth = async (req, res, next) => {
     if (!user) {
       return res.status(401).json({ error: 'User not found' });
     }
-
     
     req.user = user;
     req.token = token;
@@ -174,7 +174,7 @@ router.get('/barber/:barberId/date/:date', async (req, res) => {
   }
 });
 
-// CREATE appointment - Now saves userId if provided
+// CREATE appointment - Now with EMAIL CONFIRMATION
 router.post('/', optionalAuth, async (req, res) => {
   try {
     const {
@@ -271,12 +271,54 @@ router.post('/', optionalAuth, async (req, res) => {
     const appointment = new Appointment(appointmentData);
     await appointment.save();
 
+    // Populate appointment details for response and email
     const populated = await Appointment.findById(appointment._id)
       .populate('barber', 'name email')
       .populate('branch', 'name city address')
       .populate('services.serviceRef', 'name price duration');
 
     console.log('  Appointment created:', appointment._id);
+
+    //   SEND EMAIL CONFIRMATION (Non-blocking)
+    try {
+      const appointmentDate = new Date(populated.date);
+      const appointmentTime = appointmentDate.toTimeString().slice(0, 5); // HH:MM format
+
+      const emailData = {
+        customerName: populated.customerName,
+        bookingRef: populated._id.toString(),
+        branchName: populated.branch?.name || 'N/A',
+        branchAddress: populated.branch?.address || 'N/A',
+        barberName: populated.barber?.name || 'N/A',
+        services: populated.services.map(s => ({
+          name: s.name,
+          price: s.price,
+          duration: s.duration
+        })),
+        date: populated.date,
+        time: appointmentTime,
+        duration: populated.duration,
+        totalPrice: populated.totalPrice
+      };
+
+      // Send email asynchronously (non-blocking)
+      sendBookingConfirmation(populated.email, emailData)
+        .then(result => {
+          if (result.success) {
+            console.log('  Booking confirmation email sent to:', populated.email);
+          } else {
+            console.error('  Failed to send email:', result.error);
+          }
+        })
+        .catch(err => {
+          console.error('  Email sending error:', err);
+        });
+
+    } catch (emailError) {
+      // Log email error but don't fail the booking
+      console.error('  Email preparation error:', emailError);
+    }
+
     res.status(201).json(populated);
 
   } catch (error) {
@@ -293,7 +335,7 @@ router.post('/', optionalAuth, async (req, res) => {
 router.put('/:id', optionalAuth, async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, paymentStatus, barber } = req.body; // ← ADDED BARBER FIELD
+    const { status, paymentStatus, barber } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ message: 'Invalid appointment ID' });
@@ -331,7 +373,7 @@ router.put('/:id', optionalAuth, async (req, res) => {
       updateData.paymentStatus = paymentStatus;
     }
 
-    // NEW: Support barber reassignment for leave conflict resolution
+    // Support barber reassignment for leave conflict resolution
     if (barber) {
       if (!mongoose.Types.ObjectId.isValid(barber)) {
         return res.status(400).json({ message: 'Invalid barber ID' });
