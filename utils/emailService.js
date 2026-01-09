@@ -154,7 +154,7 @@ export const sendBookingConfirmation = async (email, bookingDetails) => {
       subject: `Booking Confirmation - Ref: ${bookingDetails.bookingRef}`,
       html: getBookingEmailHTML(bookingDetails)
     });
-
+ 
     console.log('Email sent:', info.messageId);
     return { success: true };
   } catch (error) {

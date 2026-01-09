@@ -22,12 +22,12 @@ const ServiceSchema = new mongoose.Schema({
     required: true,
     lowercase: true
   },
-  // ✅ NEW: Multiple branches support
+  //   NEW: Multiple branches support
   branches: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Branch'
   }],
-  // ✅ Track who created this service
+  //   Track who created this service
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Admin'
@@ -40,7 +40,7 @@ const ServiceSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// ✅ Index for faster queries
+//   Index for faster queries
 ServiceSchema.index({ name: 1, gender: 1 });
 ServiceSchema.index({ branches: 1 });
 
