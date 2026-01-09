@@ -1,6 +1,5 @@
 import nodemailer from 'nodemailer';
 
-// Email transporter configuration
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
@@ -9,16 +8,14 @@ const transporter = nodemailer.createTransport({
   }
 });
 
-// Verify transporter configuration
 transporter.verify((error) => {
   if (error) {
-    console.error('Email transporter verification failed:', error);
+    console.error('Email transporter failed:', error);
   } else {
-    console.log('Email server is ready to send messages');
+    console.log('Email server ready');
   }
 });
 
-// Booking confirmation email HTML template
 const getBookingEmailHTML = (bookingDetails) => {
   const {
     customerName,
@@ -30,7 +27,8 @@ const getBookingEmailHTML = (bookingDetails) => {
     date,
     time,
     duration,
-    totalPrice
+    totalPrice,
+    paymentStatus = 'Pending'
   } = bookingDetails;
 
   return `
@@ -52,89 +50,169 @@ const getBookingEmailHTML = (bookingDetails) => {
       background: #fff;
       border-radius: 8px;
       overflow: hidden;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
     }
     .header {
       background: #D4AF37;
-      padding: 25px;
+      padding: 30px;
       text-align: center;
-      font-size: 24px;
+      color: #000;
+    }
+    .header h1 {
+      font-size: 28px;
       font-weight: 700;
+      margin: 0;
     }
     .content {
-      padding: 25px;
+      padding: 30px;
+    }
+    .greeting {
+      font-size: 16px;
+      margin-bottom: 20px;
     }
     .booking-ref {
       background: #f8f8f8;
-      padding: 15px;
+      padding: 20px;
       margin: 20px 0;
       text-align: center;
-      font-weight: 600;
+      border-radius: 8px;
+      border: 2px dashed #D4AF37;
+    }
+    .booking-ref strong {
+      font-size: 24px;
+      color: #D4AF37;
     }
     .row {
       display: flex;
       justify-content: space-between;
-      padding: 8px 0;
+      padding: 12px 0;
       border-bottom: 1px solid #eee;
     }
-    .services div {
+    .row:last-child {
+      border-bottom: none;
+    }
+    .row strong {
+      color: #666;
+      font-weight: 600;
+    }
+    .services-section {
+      margin: 25px 0;
+    }
+    .services-section h3 {
+      margin-bottom: 15px;
+      color: #333;
+    }
+    .service-item {
       display: flex;
       justify-content: space-between;
-      padding: 6px 0;
+      padding: 10px 0;
+      border-bottom: 1px dotted #ddd;
     }
     .total {
       background: #D4AF37;
-      margin: 20px 0;
-      padding: 15px;
+      margin: 25px 0;
+      padding: 20px;
       text-align: center;
-      font-size: 18px;
+      border-radius: 8px;
+    }
+    .total-amount {
+      font-size: 32px;
       font-weight: 700;
+      color: #000;
+    }
+    .payment-status {
+      background: #fff3cd;
+      border: 2px solid #ffc107;
+      padding: 15px;
+      margin: 20px 0;
+      border-radius: 8px;
+      text-align: center;
+    }
+    .payment-status strong {
+      color: #856404;
+      font-size: 18px;
     }
     .footer {
       background: #f8f8f8;
-      padding: 15px;
+      padding: 20px;
       text-align: center;
-      font-size: 12px;
+      font-size: 13px;
       color: #666;
+    }
+    .footer p {
+      margin: 5px 0;
     }
   </style>
 </head>
 <body>
   <div class="email-container">
-    <div class="header">Booking Confirmation</div>
+    <div class="header">
+      <h1>Booking Confirmed!</h1>
+    </div>
 
     <div class="content">
-      <p>Dear <strong>${customerName}</strong>,</p>
-      <p>Your appointment has been successfully confirmed.</p>
+      <p class="greeting">Dear <strong>${customerName}</strong>,</p>
+      <p>Your barber appointment has been successfully confirmed. We look forward to seeing you!</p>
 
       <div class="booking-ref">
-        Booking Reference: ${bookingRef}
+        <p style="margin-bottom:10px;">Booking Reference</p>
+        <strong>${bookingRef}</strong>
       </div>
 
-      <div class="row"><span>Branch</span><span>${branchName}</span></div>
-      <div class="row"><span>Address</span><span>${branchAddress}</span></div>
-      <div class="row"><span>Barber</span><span>${barberName}</span></div>
-      <div class="row"><span>Date</span><span>${new Date(date).toLocaleDateString('en-GB')}</span></div>
-      <div class="row"><span>Time</span><span>${time}</span></div>
-      <div class="row"><span>Duration</span><span>${duration} minutes</span></div>
+      <div class="row">
+        <strong>Branch:</strong>
+        <span>${branchName}</span>
+      </div>
+      <div class="row">
+        <strong>Address:</strong>
+        <span>${branchAddress}</span>
+      </div>
+      <div class="row">
+        <strong>Your Barber:</strong>
+        <span>${barberName}</span>
+      </div>
+      <div class="row">
+        <strong>Date:</strong>
+        <span>${new Date(date).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</span>
+      </div>
+      <div class="row">
+        <strong>Time:</strong>
+        <span>${time}</span>
+      </div>
+      <div class="row">
+        <strong>Duration:</strong>
+        <span>${duration} minutes</span>
+      </div>
 
-      <h3 style="margin-top:20px;">Services</h3>
-      <div class="services">
+      <div class="services-section">
+        <h3>Services Booked</h3>
         ${services.map(s => `
-          <div>
+          <div class="service-item">
             <span>${s.name}</span>
-            <span>${s.price}</span>
+            <strong>${s.price}</strong>
           </div>
         `).join('')}
       </div>
 
       <div class="total">
-        Total Amount: £${totalPrice.toFixed(2)}
+        <p style="font-size:16px; margin-bottom:10px;">Total Amount</p>
+        <div class="total-amount">£${totalPrice.toFixed(2)}</div>
       </div>
+
+      <div class="payment-status">
+        <strong>Payment Status: ${paymentStatus}</strong>
+        <p style="margin-top:10px; color:#856404;">Please bring cash or card to complete payment at the salon.</p>
+      </div>
+
+      <p style="margin-top:25px; font-size:14px; color:#666;">
+        If you need to reschedule or cancel, please contact us as soon as possible.
+      </p>
     </div>
 
     <div class="footer">
-      <p>This is an automated email. Please do not reply.</p>
-      <p>Contact: ${process.env.EMAIL_USER}</p>
+      <p><strong>This is an automated confirmation email.</strong></p>
+      <p>For inquiries, contact us at: ${process.env.EMAIL_USER}</p>
+      <p>© 2026 Barber Appointments. All rights reserved.</p>
     </div>
   </div>
 </body>
@@ -142,23 +220,34 @@ const getBookingEmailHTML = (bookingDetails) => {
 `;
 };
 
-// ✅ NAMED EXPORT ONLY (NO DEFAULT EXPORT)
 export const sendBookingConfirmation = async (email, bookingDetails) => {
   try {
+    console.log('📧 Attempting to send email to:', email);
+    console.log('📧 Email config:', {
+      user: process.env.EMAIL_USER ? 'Set ✅' : 'Missing ❌',
+      pass: process.env.EMAIL_APP_PASSWORD ? 'Set ✅' : 'Missing ❌'
+    });
+
+    if (!process.env.EMAIL_USER || !process.env.EMAIL_APP_PASSWORD) {
+      throw new Error('Email credentials not configured in environment variables');
+    }
+
     const info = await transporter.sendMail({
       from: {
         name: 'Barber Appointments',
         address: process.env.EMAIL_USER
       },
       to: email,
-      subject: `Booking Confirmation - Ref: ${bookingDetails.bookingRef}`,
+      subject: `Booking Confirmed - Ref: ${bookingDetails.bookingRef}`,
       html: getBookingEmailHTML(bookingDetails)
     });
  
-    console.log('Email sent:', info.messageId);
-    return { success: true };
+    console.log('✅ Email sent successfully:', info.messageId);
+    console.log('✅ Accepted recipients:', info.accepted);
+    return { success: true, messageId: info.messageId };
   } catch (error) {
-    console.error('Email error:', error);
+    console.error('❌ Email sending failed:', error.message);
+    console.error('❌ Full error:', error);
     return { success: false, error: error.message };
   }
 };
