@@ -16,8 +16,6 @@ const optionalAuth = async (req, res, next) => {
     
     if (token) {
       const decoded = jwt.verify(token, process.env.JWT_SECRET || 'supersecretkey123456789');
-      
-      // Dynamically import User model
       const User = (await import('../models/User.js')).default;
       const user = await User.findById(decoded.userId || decoded.id);
       
@@ -28,7 +26,6 @@ const optionalAuth = async (req, res, next) => {
     }
     next();
   } catch (error) {
-    // If token is invalid, just continue without user
     next();
   }
 };
@@ -58,14 +55,13 @@ const requireAuth = async (req, res, next) => {
   }
 };
 
-//   CORS Headers Middleware - Add at the top of router
+// CORS Headers Middleware
 router.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
   res.header('Access-Control-Allow-Credentials', 'true');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   
-  // Handle preflight
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
@@ -73,41 +69,7 @@ router.use((req, res, next) => {
   next();
 });
 
-// TEST EMAIL ENDPOINT - For debugging (moved to top for easy access)
-router.get('/test-email', async (req, res) => {
-  try {
-    console.log('🧪 Testing email service...');
-    
-    const result = await sendBookingConfirmation('boydecant5@gmail.com', {
-      customerName: 'Test User',
-      bookingRef: 'TEST123',
-      branchName: 'Test Branch',
-      branchAddress: 'Test Address, City',
-      barberName: 'Test Barber',
-      services: [
-        { name: 'Haircut', price: '£25' },
-        { name: 'Beard Trim', price: '£15' }
-      ],
-      date: new Date(),
-      time: '14:30',
-      duration: 40,
-      totalPrice: 40
-    });
-    
-    if (result.success) {
-      console.log('  Test email sent successfully');
-      res.json({ success: true, message: 'Test email sent successfully! Check boydecant5@gmail.com' });
-    } else {
-      console.error('  Test email failed:', result.error);
-      res.status(500).json({ success: false, error: result.error });
-    }
-  } catch (error) {
-    console.error('  Test email error:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// GET appointments by barber and date (for booking conflicts) - Move before /:id route
+// GET appointments by barber and date (for booking conflicts)
 router.get('/barber/:barberId/date/:date', async (req, res) => {
   try {
     const { barberId, date } = req.params;
@@ -145,18 +107,14 @@ router.get('/', optionalAuth, async (req, res) => {
     
     let filter = {};
     
-    // CRITICAL: If user is logged in and has 'user' role, filter by their email/userId
     if (req.user && req.user.role === 'user') {
       filter.$or = [
         { email: req.user.email },
         { userId: req.user._id }
       ];
       console.log('👤 Filtering appointments for user:', req.user.email);
-    } else {
-      console.log('👥 No user filter applied (admin/barber or no auth)');
     }
     
-    // Additional filters
     if (barber && mongoose.Types.ObjectId.isValid(barber)) {
       filter.barber = barber;
     }
@@ -183,7 +141,6 @@ router.get('/', optionalAuth, async (req, res) => {
       .populate('services.serviceRef', 'name price duration')
       .sort({ date: -1, createdAt: -1 });
 
-    console.log(`📋 Found ${appointments.length} appointments`);
     res.json(appointments);
     
   } catch (error) {
@@ -208,7 +165,6 @@ router.get('/:id', optionalAuth, async (req, res) => {
       return res.status(404).json({ message: 'Appointment not found' });
     }
 
-    // Check ownership if user is logged in
     if (req.user && req.user.role === 'user') {
       const isOwner = appointment.email === req.user.email || 
                       appointment.userId?.toString() === req.user._id.toString();
@@ -225,7 +181,7 @@ router.get('/:id', optionalAuth, async (req, res) => {
   }
 });
 
-// CREATE appointment - With IMPROVED EMAIL CONFIRMATION
+// CREATE appointment - WITH EMAIL CONFIRMATION
 router.post('/', optionalAuth, async (req, res) => {
   try {
     const {
@@ -241,7 +197,6 @@ router.post('/', optionalAuth, async (req, res) => {
     } = req.body;
 
     console.log('📝 Creating appointment for:', email);
-    console.log('📦 Received payload:', { customerName, email, phone, date, selectedServices, barber, branch, duration, totalPrice });
 
     // Validation
     if (!customerName || !email || !phone || !date || !barber || !branch || !duration) {
@@ -283,7 +238,6 @@ router.post('/', optionalAuth, async (req, res) => {
     }
 
     const services = await Service.find({ _id: { $in: serviceIds } });
-    console.log(`📚 Found ${services.length} services from ${serviceIds.length} requested`);
 
     if (services.length !== serviceIds.length) {
       return res.status(400).json({ 
@@ -296,7 +250,6 @@ router.post('/', optionalAuth, async (req, res) => {
     const enrichedServices = selectedServices.map(sel => {
       const service = services.find(s => s._id.toString() === sel.serviceRef);
       if (!service) {
-        console.error('  Service not found for ID:', sel.serviceRef);
         return null;
       }
       return {
@@ -314,15 +267,11 @@ router.post('/', optionalAuth, async (req, res) => {
       });
     }
 
-    console.log('  Enriched services:', enrichedServices);
-
     // Calculate total if not provided
     const calculatedTotal = totalPrice || enrichedServices.reduce((sum, s) => {
       const priceValue = parseFloat(s.price.replace('£', '').trim());
       return sum + priceValue;
     }, 0);
-
-    console.log('💰 Total price:', calculatedTotal);
 
     // Create appointment with userId if user is logged in
     const appointmentData = {
@@ -350,33 +299,26 @@ router.post('/', optionalAuth, async (req, res) => {
     const appointment = new Appointment(appointmentData);
     await appointment.save();
 
-    console.log('  Appointment saved to database:', appointment._id);
+    console.log('  Appointment created:', appointment._id);
 
-    // Populate appointment details for response and email
+    // Populate appointment details
     const populated = await Appointment.findById(appointment._id)
       .populate('barber', 'name email')
       .populate('branch', 'name city address')
       .populate('services.serviceRef', 'name price duration');
 
-    console.log('  Appointment populated successfully');
-
-    //   SEND EMAIL CONFIRMATION (Non-blocking)
+    // SEND EMAIL CONFIRMATION (Non-blocking)
     (async () => {
       try {
-        // Fetch full branch and barber details
         const branchData = await Branch.findById(branch);
         const barberData = await Barber.findById(barber);
 
         if (!branchData || !barberData) {
           console.error('⚠️ Branch or Barber not found for email');
-          console.error('Branch ID:', branch, 'Found:', !!branchData);
-          console.error('Barber ID:', barber, 'Found:', !!barberData);
           return;
         }
 
         const appointmentDate = new Date(populated.date);
-        
-        // Format time as 24-hour HH:MM
         const appointmentTime = appointmentDate.toLocaleTimeString('en-GB', { 
           hour: '2-digit', 
           minute: '2-digit',
@@ -396,26 +338,24 @@ router.post('/', optionalAuth, async (req, res) => {
           date: appointmentDate,
           time: appointmentTime,
           duration: populated.duration,
-          totalPrice: populated.totalPrice
+          totalPrice: populated.totalPrice,
+          paymentStatus: 'Pending' // Payment status added
         };
 
-        console.log('📧 Preparing to send email to:', populated.email);
-        console.log('📧 Email data:', JSON.stringify(emailData, null, 2));
+        console.log('📧 Sending email to:', populated.email);
 
         const result = await sendBookingConfirmation(populated.email, emailData);
         
         if (result.success) {
-          console.log('  Booking confirmation email sent successfully to:', populated.email);
+          console.log('  Email sent successfully to:', populated.email);
         } else {
-          console.error('  Failed to send email:', result.error);
+          console.error('  Email failed:', result.error);
         }
       } catch (emailError) {
-        console.error('  Email sending error:', emailError.message);
-        console.error('  Full error:', emailError);
+        console.error('  Email error:', emailError.message);
       }
     })();
 
-    // Return response immediately (don't wait for email)
     res.status(201).json(populated);
 
   } catch (error) {
@@ -428,7 +368,7 @@ router.post('/', optionalAuth, async (req, res) => {
   }
 });
 
-// UPDATE appointment (with ownership check + barber reassignment support)
+// UPDATE appointment
 router.put('/:id', optionalAuth, async (req, res) => {
   try {
     const { id } = req.params;
@@ -438,13 +378,11 @@ router.put('/:id', optionalAuth, async (req, res) => {
       return res.status(400).json({ message: 'Invalid appointment ID' });
     }
 
-    // Check if appointment exists
     const existingAppointment = await Appointment.findById(id);
     if (!existingAppointment) {
       return res.status(404).json({ message: 'Appointment not found' });
     }
 
-    // Check ownership if user is logged in and has 'user' role
     if (req.user && req.user.role === 'user') {
       const isOwner = existingAppointment.email === req.user.email || 
                       existingAppointment.userId?.toString() === req.user._id.toString();
@@ -470,13 +408,11 @@ router.put('/:id', optionalAuth, async (req, res) => {
       updateData.paymentStatus = paymentStatus;
     }
 
-    // Support barber reassignment for leave conflict resolution
     if (barber) {
       if (!mongoose.Types.ObjectId.isValid(barber)) {
         return res.status(400).json({ message: 'Invalid barber ID' });
       }
       updateData.barber = barber;
-      console.log('🔄 Reassigning appointment to new barber:', barber);
     }
 
     const appointment = await Appointment.findByIdAndUpdate(
@@ -489,7 +425,7 @@ router.put('/:id', optionalAuth, async (req, res) => {
       .populate('services.serviceRef', 'name price duration');
 
     console.log('  Appointment updated:', id);
-    res.json(appointment); 
+    res.json(appointment);
 
   } catch (error) {
     console.error('  Update appointment error:', error);
@@ -497,7 +433,7 @@ router.put('/:id', optionalAuth, async (req, res) => {
   }
 });
 
-// DELETE appointment (with ownership check)
+// DELETE appointment
 router.delete('/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
@@ -512,7 +448,6 @@ router.delete('/:id', requireAuth, async (req, res) => {
       return res.status(404).json({ message: 'Appointment not found' });
     }
 
-    // Check ownership for regular users
     if (req.user.role === 'user') {
       const isOwner = appointment.email === req.user.email || 
                       appointment.userId?.toString() === req.user._id.toString();
