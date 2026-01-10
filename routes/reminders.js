@@ -12,23 +12,36 @@ const requireAdminAuth = async (req, res, next) => {
     const token = req.header('Authorization')?.replace('Bearer ', '');
     
     if (!token) {
+      console.log('❌ No token provided');
       return res.status(401).json({ error: 'Authentication required' });
     }
     
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'supersecretkey123456789');
+    console.log('🔑 Token received, verifying...');
+    
+    // Use exact same JWT_SECRET as auth routes
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    console.log('✅ Token decoded:', { adminId: decoded.adminId || decoded.id });
     
     const Admin = (await import('../models/Admin.js')).default;
     const admin = await Admin.findById(decoded.adminId || decoded.id);
     
     if (!admin) {
+      console.log('❌ Admin not found for ID:', decoded.adminId || decoded.id);
       return res.status(401).json({ error: 'Admin not found' });
     }
     
+    console.log('✅ Admin authenticated:', admin.email);
     req.admin = admin;
     next();
   } catch (error) {
-    console.error('❌ Admin auth error:', error);
-    res.status(401).json({ error: 'Invalid token' });
+    console.error('❌ Admin auth error:', error.message);
+    if (error.name === 'JsonWebTokenError') {
+      return res.status(401).json({ error: 'Invalid token format' });
+    }
+    if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({ error: 'Token expired' });
+    }
+    res.status(401).json({ error: 'Authentication failed' });
   }
 };
 
@@ -36,7 +49,7 @@ const requireAdminAuth = async (req, res, next) => {
 router.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
   res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   
   if (req.method === 'OPTIONS') {
@@ -49,6 +62,8 @@ router.use((req, res, next) => {
 // GET reminder settings
 router.get('/settings', requireAdminAuth, async (req, res) => {
   try {
+    console.log('📋 Fetching reminder settings for:', req.admin?.email);
+    
     let settings = await ReminderSettings.findOne();
     
     // Create default settings if none exist
@@ -73,6 +88,7 @@ router.get('/settings', requireAdminAuth, async (req, res) => {
       console.log('✅ Default reminder settings created');
     }
     
+    console.log('✅ Returning settings with', settings.reminders.length, 'reminders');
     res.json(settings);
   } catch (error) {
     console.error('❌ Get reminder settings error:', error);
@@ -83,6 +99,7 @@ router.get('/settings', requireAdminAuth, async (req, res) => {
 // UPDATE reminder settings
 router.put('/settings', requireAdminAuth, async (req, res) => {
   try {
+    console.log('🔄 Updating reminder settings by:', req.admin?.email);
     const { reminders } = req.body;
     
     let settings = await ReminderSettings.findOne();
@@ -99,7 +116,7 @@ router.put('/settings', requireAdminAuth, async (req, res) => {
     settings.updatedAt = new Date();
     await settings.save();
     
-    console.log('✅ Reminder settings updated');
+    console.log('✅ Reminder settings updated successfully');
     res.json(settings);
   } catch (error) {
     console.error('❌ Update reminder settings error:', error);
@@ -110,6 +127,7 @@ router.put('/settings', requireAdminAuth, async (req, res) => {
 // ADD new reminder
 router.post('/settings/reminder', requireAdminAuth, async (req, res) => {
   try {
+    console.log('➕ Adding new reminder by:', req.admin?.email);
     const { name, hoursBeforeAppointment, enabled, emailSubject } = req.body;
     
     if (!name || typeof hoursBeforeAppointment !== 'number') {
@@ -146,6 +164,7 @@ router.post('/settings/reminder', requireAdminAuth, async (req, res) => {
 // DELETE reminder
 router.delete('/settings/reminder/:id', requireAdminAuth, async (req, res) => {
   try {
+    console.log('🗑️ Deleting reminder:', req.params.id, 'by:', req.admin?.email);
     const { id } = req.params;
     
     const settings = await ReminderSettings.findOne();
@@ -173,9 +192,72 @@ router.delete('/settings/reminder/:id', requireAdminAuth, async (req, res) => {
   }
 });
 
+// TOGGLE reminder status (PATCH)
+router.patch('/settings/reminder/:id/toggle', requireAdminAuth, async (req, res) => {
+  try {
+    console.log('🔄 Toggling reminder:', req.params.id);
+    const { id } = req.params;
+    const { enabled } = req.body;
+    
+    const settings = await ReminderSettings.findOne();
+    if (!settings) {
+      return res.status(404).json({ error: 'Settings not found' });
+    }
+    
+    const reminder = settings.reminders.id(id);
+    if (!reminder) {
+      return res.status(404).json({ error: 'Reminder not found' });
+    }
+    
+    reminder.enabled = enabled;
+    settings.updatedAt = new Date();
+    await settings.save();
+    
+    console.log('✅ Reminder toggled:', id, 'enabled:', enabled);
+    res.json(settings);
+  } catch (error) {
+    console.error('❌ Toggle reminder error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// UPDATE specific reminder (PUT)
+router.put('/settings/reminder/:id', requireAdminAuth, async (req, res) => {
+  try {
+    console.log('🔄 Updating reminder:', req.params.id);
+    const { id } = req.params;
+    const { name, hoursBeforeAppointment, enabled, emailSubject } = req.body;
+    
+    const settings = await ReminderSettings.findOne();
+    if (!settings) {
+      return res.status(404).json({ error: 'Settings not found' });
+    }
+    
+    const reminder = settings.reminders.id(id);
+    if (!reminder) {
+      return res.status(404).json({ error: 'Reminder not found' });
+    }
+    
+    if (name) reminder.name = name;
+    if (typeof hoursBeforeAppointment === 'number') reminder.hoursBeforeAppointment = hoursBeforeAppointment;
+    if (typeof enabled === 'boolean') reminder.enabled = enabled;
+    if (emailSubject) reminder.emailSubject = emailSubject;
+    
+    settings.updatedAt = new Date();
+    await settings.save();
+    
+    console.log('✅ Reminder updated:', id);
+    res.json(settings);
+  } catch (error) {
+    console.error('❌ Update reminder error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // MANUAL TEST - Send reminder for specific appointment
 router.post('/test/:appointmentId', requireAdminAuth, async (req, res) => {
   try {
+    console.log('🧪 Testing reminder for appointment:', req.params.appointmentId);
     const { appointmentId } = req.params;
     
     const appointment = await Appointment.findById(appointmentId)
@@ -187,7 +269,6 @@ router.post('/test/:appointmentId', requireAdminAuth, async (req, res) => {
       return res.status(404).json({ error: 'Appointment not found' });
     }
     
-    // Calculate hours until appointment
     const now = new Date();
     const appointmentDate = new Date(appointment.date);
     const hoursUntil = Math.round((appointmentDate - now) / (1000 * 60 * 60));
@@ -231,9 +312,10 @@ router.post('/test/:appointmentId', requireAdminAuth, async (req, res) => {
   }
 });
 
-// GET upcoming appointments that need reminders (for debugging)
+// GET upcoming appointments that need reminders
 router.get('/pending', requireAdminAuth, async (req, res) => {
   try {
+    console.log('📊 Fetching pending reminders');
     const settings = await ReminderSettings.findOne();
     
     if (!settings) {
@@ -276,6 +358,7 @@ router.get('/pending', requireAdminAuth, async (req, res) => {
       });
     }
     
+    console.log('✅ Found', upcoming.length, 'reminder groups');
     res.json({ 
       activeReminders: settings.reminders.filter(r => r.enabled).length,
       upcoming 
