@@ -4,8 +4,10 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { v2 as cloudinary } from 'cloudinary';
 import passport from 'passport';
-//    ENV FIRST (VERY IMPORTANT) 
+
+// ENV FIRST (VERY IMPORTANT) 
 dotenv.config();
+
 // ROUTES
 import authRoutes from './routes/auth.js';
 import appointmentRoutes from './routes/appointments.js';
@@ -20,9 +22,10 @@ import webhookRoutes from './routes/webhooks.js';
 import otpRoutes from './routes/otpRoutes.js';
 import branchAdminRoutes from './routes/branchAdmin.js';
 import reminderRoutes from './routes/reminders.js';
-// import { startReminderCron } from './services/reminderCronService.js';
+// REMINDER CRON SERVICE
+import { startReminderCron } from './routes/reminderCronService.js';
+
 // CLOUDINARY
- 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
@@ -34,17 +37,13 @@ console.log('  Cloudinary Loaded:', {
   key: process.env.CLOUDINARY_API_KEY?.slice(0, 6) + '...',
 });
 
- 
 // EXPRESS APP
 const app = express();
 
 // Passport init
 app.use(passport.initialize());
 
- 
 // SECURITY HEADERS
- 
-
 app.use((req, res, next) => {
   res.setHeader(
     'Content-Security-Policy',
@@ -58,7 +57,6 @@ app.use((req, res, next) => {
 });
 
 // CORS
- 
 const allowedOrigins = [
   'http://localhost:5173',
   'https://barber-appointment-six.vercel.app',
@@ -75,17 +73,16 @@ app.use(cors({
     }
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
 // MONGODB CONNECTION (SERVERLESS SAFE)
- 
 let isConnected = false;
 
 async function connectToDatabase() {
   if (isConnected && mongoose.connection.readyState === 1) {
-    console.log(' Using existing database connection');
+    console.log('  Using existing database connection');
     return mongoose.connection;
   }
 
@@ -102,9 +99,16 @@ async function connectToDatabase() {
 
     isConnected = true;
     console.log('  MongoDB Connected');
+    
+    // START REMINDER CRON AFTER DB CONNECTION
+    if (process.env.NODE_ENV !== 'production') {
+      // Only run cron in development/local
+      startReminderCron();
+    }
+    
     return mongoose.connection;
   } catch (err) {
-    console.error('  MongoDB Connection Error:', err);
+    console.error('❌ MongoDB Connection Error:', err);
     isConnected = false;
     throw err;
   }
@@ -120,32 +124,28 @@ app.use(async (req, res, next) => {
   }
 });
 
- 
 // STRIPE WEBHOOK (RAW BODY)
- 
 app.use('/api/webhooks', webhookRoutes);
- 
+
 // BODY PARSERS 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 app.use('/uploads', express.static('uploads'));
 
 // HEALTH CHECK
- 
 app.get('/', (req, res) => {
   res.json({
     status: 'OK',
-    message: 'API Running',
+    message: 'Barber Appointment API Running',
     emailConfigured: !!(
       process.env.EMAIL_USER && process.env.EMAIL_APP_PASSWORD
     ),
+    environment: process.env.NODE_ENV || 'development',
     timestamp: new Date().toISOString(),
   });
 });
 
- 
 // ROUTES
- 
 app.use('/api/auth', authRoutes);
 app.use('/api/appointments', appointmentRoutes);
 app.use('/api/barbers', barberRoutes);
@@ -160,7 +160,6 @@ app.use('/api/branch-admin', branchAdminRoutes);
 app.use('/api/reminders', reminderRoutes);
 
 // 404 HANDLER
- 
 app.use('*', (req, res) => {
   res.status(404).json({
     error: 'Route not found',
@@ -168,11 +167,9 @@ app.use('*', (req, res) => {
   });
 });
 
- 
 // GLOBAL ERROR HANDLER
- 
 app.use((err, req, res, next) => {
-  console.error('  SERVER ERROR:', err);
+  console.error('❌ SERVER ERROR:', err);
   res.status(500).json({
     error: err.message || 'Server Error',
   });
