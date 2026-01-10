@@ -19,6 +19,8 @@ import adminRoutes from './routes/admins.js';
 import webhookRoutes from './routes/webhooks.js'; 
 import otpRoutes from './routes/otpRoutes.js';
 import branchAdminRoutes from './routes/branchAdmin.js';
+import reminderRoutes from './routes/reminders.js';
+// import { startReminderCron } from './services/reminderCronService.js';
 // CLOUDINARY
  
 cloudinary.config({
@@ -42,6 +44,7 @@ app.use(passport.initialize());
  
 // SECURITY HEADERS
  
+
 app.use((req, res, next) => {
   res.setHeader(
     'Content-Security-Policy',
@@ -154,7 +157,8 @@ app.use('/api/leaves', leaveRoutes);
 app.use('/api/admins', adminRoutes);
 app.use('/api/otp', otpRoutes);
 app.use('/api/branch-admin', branchAdminRoutes);
- 
+app.use('/api/reminders', reminderRoutes);
+
 // 404 HANDLER
  
 app.use('*', (req, res) => {

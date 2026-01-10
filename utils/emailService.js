@@ -10,6 +10,7 @@ const transporter = nodemailer.createTransport({
   }
 });
 
+
 transporter.verify((error) => {
   if (error) {
     console.error('Email transporter failed:', error);

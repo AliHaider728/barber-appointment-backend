@@ -56,6 +56,10 @@ const appointmentSchema = new mongoose.Schema({
     default: 'pending' 
   },
   payOnline: { type: Boolean, default: false }, // true = online payment, false = pay at salon
+  remindersSent: {
+  type: [String],  // Array of reminder IDs that have been sent
+  default: []
+}
    
 }, { timestamps: true }); // createdAt and updatedAt automatically added
 
