@@ -1,4 +1,4 @@
-// backend/routes/payments.js - COMPLETE SANDBOX VERSION
+// backend/routes/payments.js - FIXED VERSION
 import express from 'express';
 import Appointment from '../models/Appointment.js';
 import Payment from '../models/Payment.js';
@@ -9,7 +9,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 const router = express.Router();
 
-// 🧪 STRIPE INITIALIZATION (from .env)
+// STRIPE INITIALIZATION
 let stripe = null;
 if (process.env.STRIPE_SECRET_KEY) {
   try {
@@ -17,12 +17,12 @@ if (process.env.STRIPE_SECRET_KEY) {
     stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
       apiVersion: '2023-10-16',
     });
-    console.log('✅ Stripe initialized (Using .env key)');
+    console.log('✅ Stripe initialized (payments)');
   } catch (err) {
     console.error('❌ Stripe init failed:', err.message);
   }
 } else {
-  console.error('❌ STRIPE_SECRET_KEY not found in .env file');
+  console.error('❌ STRIPE_SECRET_KEY not found');
 }
 
 const PLATFORM_FEE_PERCENTAGE = 10;
@@ -35,6 +35,9 @@ router.post('/create-payment-intent', async (req, res) => {
     }
 
     const { totalPrice, customerEmail, customerName, barberId } = req.body;
+    
+    console.log('📝 Creating payment intent:', { totalPrice, customerEmail, customerName, barberId });
+
     if (!totalPrice || !barberId) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
@@ -48,6 +51,12 @@ router.post('/create-payment-intent', async (req, res) => {
     const platformFee = (totalAmount * PLATFORM_FEE_PERCENTAGE) / 100;
     const barberAmount = totalAmount - platformFee;
 
+    console.log(`💰 Amount split:
+    - Total: £${totalAmount}
+    - Platform: £${platformFee}
+    - Barber: £${barberAmount}`);
+
+    // Create payment intent
     const paymentIntent = await stripe.paymentIntents.create({
       amount: Math.round(totalAmount * 100),
       currency: 'gbp',
@@ -57,10 +66,15 @@ router.post('/create-payment-intent', async (req, res) => {
         barberId: barberId,
         barberName: barber.name,
         platformFee: platformFee.toFixed(2),
-        barberAmount: barberAmount.toFixed(2)
+        barberAmount: barberAmount.toFixed(2),
+        // ADD THESE for webhook tracking
+        splitPayment: 'true',
+        platformFeePercentage: PLATFORM_FEE_PERCENTAGE.toString()
       },
-      description: `Appointment with ${barber.name}`
+      description: `Appointment with ${barber.name} - ${customerName || 'Guest'}`
     });
+
+    console.log('✅ Payment intent created:', paymentIntent.id);
 
     res.json({
       clientSecret: paymentIntent.client_secret,
@@ -78,27 +92,41 @@ router.post('/create-payment-intent', async (req, res) => {
 router.post('/create-appointment-with-payment', async (req, res) => {
   try {
     const appointmentData = req.body;
+    
+    console.log('📅 Creating appointment with payment:', appointmentData.paymentIntentId);
+
     if (!appointmentData.paymentIntentId) {
       return res.status(400).json({ error: 'Payment Intent ID required' });
     }
 
+    // Check for duplicate
     const existingAppointment = await Appointment.findOne({
       paymentIntentId: appointmentData.paymentIntentId
     });
 
     if (existingAppointment) {
-      return res.json({ appointment: existingAppointment, message: 'Already created' });
+      console.log('⚠️ Appointment already exists:', existingAppointment._id);
+      return res.json({ 
+        appointment: existingAppointment, 
+        message: 'Appointment already created' 
+      });
     }
 
+    // Create appointment
     const appointment = new Appointment({
       ...appointmentData,
-      status: 'pending',
+      status: 'pending', // Will be updated by webhook
       paymentStatus: 'paid',
       payOnline: true
     });
 
     await appointment.save();
-    res.status(201).json({ appointment, message: 'Appointment created' });
+    console.log('✅ Appointment created:', appointment._id);
+
+    res.status(201).json({ 
+      appointment, 
+      message: 'Appointment created - payment processing' 
+    });
   } catch (error) {
     console.error('❌ Appointment error:', error);
     res.status(500).json({ error: error.message });
@@ -168,7 +196,7 @@ router.post('/stripe/connect', verifyToken, async (req, res) => {
       return res.status(404).json({ error: 'Barber not found' });
     }
 
-    // Check existing account
+    // Check existing
     if (barber.stripeAccountId) {
       try {
         const account = await stripe.accounts.retrieve(barber.stripeAccountId);
@@ -186,7 +214,7 @@ router.post('/stripe/connect', verifyToken, async (req, res) => {
       }
     }
 
-    // Create new Express account
+    // Create Express account
     const account = await stripe.accounts.create({
       type: 'express',
       country: 'GB',
@@ -224,7 +252,7 @@ router.post('/stripe/connect', verifyToken, async (req, res) => {
   }
 });
 
-/* 🔗 CREATE ACCOUNT ONBOARDING LINK */
+/* 🔗 CREATE ONBOARDING LINK */
 router.post('/stripe/onboarding-link', verifyToken, async (req, res) => {
   try {
     if (!stripe) {
@@ -299,34 +327,26 @@ router.post('/stripe/add-bank-account', verifyToken, async (req, res) => {
       return res.status(404).json({ error: 'No Stripe account found' });
     }
 
-    // Create bank account token
     const token = await stripe.tokens.create({
       bank_account: {
         country: 'GB',
         currency: 'gbp',
         account_holder_name: accountHolderName,
         account_holder_type: 'individual',
-        routing_number: sortCode.replace(/\s/g, ''), // Remove spaces
+        routing_number: sortCode.replace(/\s/g, ''),
         account_number: accountNumber.replace(/\s/g, '')
       }
     });
 
-    console.log('✅ Bank token created:', token.id);
-
-    // Add to Connect account
     const bankAccount = await stripe.accounts.createExternalAccount(
       barber.stripeAccountId,
       { external_account: token.id }
     );
 
-    console.log('✅ Bank added:', bankAccount.id);
-
-    // Set as default if requested
     if (setAsDefault) {
       await stripe.accounts.update(barber.stripeAccountId, {
         default_for_currency: { gbp: bankAccount.id }
       });
-      console.log('✅ Set as default');
     }
 
     res.json({
@@ -348,7 +368,7 @@ router.post('/stripe/add-bank-account', verifyToken, async (req, res) => {
   }
 });
 
-/* 🗑️ DELETE BANK ACCOUNT */
+/* 🗑️ DELETE BANK */
 router.delete('/stripe/bank-accounts/:bankId', verifyToken, async (req, res) => {
   try {
     if (!stripe) {
@@ -413,13 +433,13 @@ router.post('/stripe/transfer-pending', verifyToken, async (req, res) => {
       return res.status(404).json({ error: 'No Stripe account linked' });
     }
 
-    // Verify account ready
+    // Verify account
     const account = await stripe.accounts.retrieve(barber.stripeAccountId);
     if (!account.charges_enabled || !account.payouts_enabled) {
       return res.status(400).json({ error: 'Complete Stripe onboarding first' });
     }
 
-    // Find pending payments
+    // Find pending
     const pendingPayments = await Payment.find({
       barber: barber._id,
       status: 'succeeded',
@@ -427,13 +447,12 @@ router.post('/stripe/transfer-pending', verifyToken, async (req, res) => {
     });
 
     if (pendingPayments.length === 0) {
-      return res.json({ message: 'No pending payments to transfer', transferred: 0 });
+      return res.json({ message: 'No pending payments', transferred: 0 });
     }
 
     let successCount = 0;
     let totalTransferred = 0;
 
-    // Transfer each payment
     for (const payment of pendingPayments) {
       try {
         const transfer = await stripe.transfers.create({
@@ -442,6 +461,7 @@ router.post('/stripe/transfer-pending', verifyToken, async (req, res) => {
           destination: barber.stripeAccountId,
           metadata: {
             paymentId: payment._id.toString(),
+            appointmentId: payment.appointment.toString(),
             barberId: barber._id.toString(),
             barberName: barber.name
           }
@@ -462,7 +482,7 @@ router.post('/stripe/transfer-pending', verifyToken, async (req, res) => {
     }
 
     res.json({
-      message: `Successfully transferred ${successCount} payment(s)`,
+      message: `Transferred ${successCount} payment(s)`,
       transferred: successCount,
       total: pendingPayments.length,
       amount: totalTransferred.toFixed(2)
@@ -512,7 +532,7 @@ router.get('/barber/me', verifyToken, async (req, res) => {
   }
 });
 
-/* 🔗 GET STRIPE DASHBOARD LINK (for advanced settings) */
+/* 🔗 GET DASHBOARD LINK */
 router.post('/stripe/dashboard-link', verifyToken, async (req, res) => {
   try {
     if (!stripe) {
