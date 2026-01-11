@@ -93,7 +93,11 @@ router.post('/create-appointment-with-payment', async (req, res) => {
   try {
     const appointmentData = req.body;
     
-    console.log('📅 Creating appointment with payment:', appointmentData.paymentIntentId);
+    console.log('📅 Creating appointment with payment:', {
+      paymentIntentId: appointmentData.paymentIntentId,
+      barber: appointmentData.barber,
+      totalPrice: appointmentData.totalPrice
+    });
 
     if (!appointmentData.paymentIntentId) {
       return res.status(400).json({ error: 'Payment Intent ID required' });
@@ -112,6 +116,14 @@ router.post('/create-appointment-with-payment', async (req, res) => {
       });
     }
 
+    // Verify barber exists
+    const barber = await Barber.findById(appointmentData.barber);
+    if (!barber) {
+      return res.status(404).json({ error: 'Barber not found' });
+    }
+
+    console.log('✅ Barber found:', barber.name, '- Stripe Account:', barber.stripeAccountId || 'None');
+
     // Create appointment
     const appointment = new Appointment({
       ...appointmentData,
@@ -122,6 +134,7 @@ router.post('/create-appointment-with-payment', async (req, res) => {
 
     await appointment.save();
     console.log('✅ Appointment created:', appointment._id);
+    console.log('🔗 Payment Intent ID:', appointment.paymentIntentId);
 
     res.status(201).json({ 
       appointment, 

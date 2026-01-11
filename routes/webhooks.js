@@ -94,19 +94,31 @@ router.post('/stripe', express.raw({ type: 'application/json' }), async (req, re
 /* 💰 PAYMENT SUCCESS HANDLER */
 async function handlePaymentSuccess(paymentIntent) {
   console.log('\n💰 Payment Success:', paymentIntent.id);
+  console.log('📦 Payment Intent Data:', JSON.stringify(paymentIntent, null, 2));
 
   try {
+    // IMPORTANT: Wait a bit for appointment to be created
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
     // Find appointment
     const appointment = await Appointment.findOne({ 
       paymentIntentId: paymentIntent.id 
     }).populate('barber');
 
     if (!appointment) {
-      console.error('❌ Appointment not found:', paymentIntent.id);
+      console.error('❌ Appointment not found for payment:', paymentIntent.id);
+      console.log('🔍 Searching all appointments...');
+      const allAppointments = await Appointment.find({}).limit(5);
+      console.log('📋 Recent appointments:', allAppointments.map(a => ({
+        id: a._id,
+        paymentIntentId: a.paymentIntentId,
+        status: a.status
+      })));
       return;
     }
 
     console.log('✅ Found appointment:', appointment._id);
+    console.log('👤 Barber:', appointment.barber?.name || 'Unknown');
 
     // Calculate amounts
     const totalAmount = paymentIntent.amount / 100;
@@ -396,6 +408,102 @@ router.post('/retry-transfer/:paymentId', async (req, res) => {
 
   } catch (error) {
     console.error('❌ Retry error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/* 🧪 MANUAL WEBHOOK TEST - For debugging */
+router.post('/test-payment-webhook/:appointmentId', async (req, res) => {
+  try {
+    console.log('\n🧪 MANUAL WEBHOOK TEST');
+    
+    const appointment = await Appointment.findById(req.params.appointmentId)
+      .populate('barber');
+
+    if (!appointment) {
+      return res.status(404).json({ error: 'Appointment not found' });
+    }
+
+    if (!appointment.paymentIntentId) {
+      return res.status(400).json({ error: 'No payment intent ID' });
+    }
+
+    console.log('📋 Testing appointment:', {
+      id: appointment._id,
+      paymentIntentId: appointment.paymentIntentId,
+      barber: appointment.barber?.name,
+      totalPrice: appointment.totalPrice
+    });
+
+    // Calculate amounts
+    const totalAmount = appointment.totalPrice || 0;
+    const platformFee = (totalAmount * PLATFORM_FEE_PERCENTAGE) / 100;
+    const barberAmount = totalAmount - platformFee;
+
+    // Check existing payment
+    let payment = await Payment.findOne({ 
+      stripePaymentIntentId: appointment.paymentIntentId 
+    });
+
+    if (payment) {
+      console.log('⚠️ Payment already exists:', payment._id);
+      return res.json({ 
+        message: 'Payment already exists',
+        payment,
+        action: 'none'
+      });
+    }
+
+    // Create payment record
+    payment = new Payment({
+      appointment: appointment._id,
+      barber: appointment.barber._id,
+      customerEmail: appointment.email || 'test@example.com',
+      customerName: appointment.customerName || 'Test Customer',
+      totalAmount,
+      platformFee,
+      barberAmount,
+      stripePaymentIntentId: appointment.paymentIntentId,
+      status: 'succeeded',
+      transferStatus: 'pending',
+      paymentMethod: 'card'
+    });
+
+    await payment.save();
+    console.log('✅ Payment created manually:', payment._id);
+
+    // Update appointment
+    appointment.status = 'confirmed';
+    appointment.paymentStatus = 'paid';
+    await appointment.save();
+
+    // Try transfer
+    let transferResult = null;
+    if (appointment.barber.stripeAccountId && stripe) {
+      try {
+        await transferToBarber(payment, appointment.barber);
+        transferResult = 'Transfer initiated';
+      } catch (err) {
+        transferResult = `Transfer failed: ${err.message}`;
+      }
+    } else {
+      transferResult = 'No Stripe account - holding payment';
+    }
+
+    res.json({
+      success: true,
+      message: 'Payment created manually',
+      payment,
+      transferResult,
+      breakdown: {
+        total: `£${totalAmount.toFixed(2)}`,
+        platformFee: `£${platformFee.toFixed(2)}`,
+        barberAmount: `£${barberAmount.toFixed(2)}`
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Manual webhook test error:', error);
     res.status(500).json({ error: error.message });
   }
 });
