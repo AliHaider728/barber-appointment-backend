@@ -7,10 +7,14 @@ const reminderSettingsSchema = new mongoose.Schema({
         type: String,
         required: true
       },
-      hoursBeforeAppointment: {
+      minutesBeforeAppointment: {
         type: Number,
         required: true,
-        min: 0
+        min: 0,
+        validate: {
+          validator: Number.isInteger,
+          message: 'Minutes must be an integer'
+        }
       },
       enabled: {
         type: Boolean,

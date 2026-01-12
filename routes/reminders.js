@@ -18,7 +18,6 @@ const requireAdminAuth = async (req, res, next) => {
     
     console.log('🔑 Token received, verifying...');
     
-    // Use exact same JWT_SECRET as auth routes
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     console.log('✅ Token decoded:', { adminId: decoded.adminId || decoded.id });
     
@@ -72,13 +71,13 @@ router.get('/settings', requireAdminAuth, async (req, res) => {
         reminders: [
           {
             name: '24 Hours Before',
-            hoursBeforeAppointment: 24,
+            minutesBeforeAppointment: 1440, // 24 * 60
             enabled: true,
             emailSubject: 'Appointment Reminder - Tomorrow'
           },
           {
             name: '2 Hours Before',
-            hoursBeforeAppointment: 2,
+            minutesBeforeAppointment: 120, // 2 * 60
             enabled: true,
             emailSubject: 'Appointment Reminder - In 2 Hours'
           }
@@ -128,14 +127,14 @@ router.put('/settings', requireAdminAuth, async (req, res) => {
 router.post('/settings/reminder', requireAdminAuth, async (req, res) => {
   try {
     console.log('➕ Adding new reminder by:', req.admin?.email);
-    const { name, hoursBeforeAppointment, enabled, emailSubject } = req.body;
+    const { name, minutesBeforeAppointment, enabled, emailSubject } = req.body;
     
-    if (!name || typeof hoursBeforeAppointment !== 'number') {
-      return res.status(400).json({ error: 'Name and hours are required' });
+    if (!name || typeof minutesBeforeAppointment !== 'number') {
+      return res.status(400).json({ error: 'Name and minutes are required' });
     }
     
-    if (hoursBeforeAppointment < 0) {
-      return res.status(400).json({ error: 'Hours must be positive' });
+    if (minutesBeforeAppointment < 0 || !Number.isInteger(minutesBeforeAppointment)) {
+      return res.status(400).json({ error: 'Minutes must be a positive integer' });
     }
     
     let settings = await ReminderSettings.findOne();
@@ -145,7 +144,7 @@ router.post('/settings/reminder', requireAdminAuth, async (req, res) => {
     
     settings.reminders.push({
       name,
-      hoursBeforeAppointment,
+      minutesBeforeAppointment,
       enabled: enabled !== false,
       emailSubject: emailSubject || 'Appointment Reminder'
     });
@@ -226,7 +225,7 @@ router.put('/settings/reminder/:id', requireAdminAuth, async (req, res) => {
   try {
     console.log('🔄 Updating reminder:', req.params.id);
     const { id } = req.params;
-    const { name, hoursBeforeAppointment, enabled, emailSubject } = req.body;
+    const { name, minutesBeforeAppointment, enabled, emailSubject } = req.body;
     
     const settings = await ReminderSettings.findOne();
     if (!settings) {
@@ -239,7 +238,12 @@ router.put('/settings/reminder/:id', requireAdminAuth, async (req, res) => {
     }
     
     if (name) reminder.name = name;
-    if (typeof hoursBeforeAppointment === 'number') reminder.hoursBeforeAppointment = hoursBeforeAppointment;
+    if (typeof minutesBeforeAppointment === 'number') {
+      if (minutesBeforeAppointment < 0 || !Number.isInteger(minutesBeforeAppointment)) {
+        return res.status(400).json({ error: 'Minutes must be a positive integer' });
+      }
+      reminder.minutesBeforeAppointment = minutesBeforeAppointment;
+    }
     if (typeof enabled === 'boolean') reminder.enabled = enabled;
     if (emailSubject) reminder.emailSubject = emailSubject;
     
@@ -271,7 +275,8 @@ router.post('/test/:appointmentId', requireAdminAuth, async (req, res) => {
     
     const now = new Date();
     const appointmentDate = new Date(appointment.date);
-    const hoursUntil = Math.round((appointmentDate - now) / (1000 * 60 * 60));
+    const minutesUntil = Math.round((appointmentDate - now) / (60 * 1000));
+    const hoursUntil = Math.floor(minutesUntil / 60);
     
     const appointmentTime = appointmentDate.toLocaleTimeString('en-GB', { 
       hour: '2-digit', 
@@ -301,7 +306,8 @@ router.post('/test/:appointmentId', requireAdminAuth, async (req, res) => {
       res.json({ 
         success: true, 
         message: `Test reminder sent to ${appointment.email}!`,
-        hoursUntil 
+        hoursUntil,
+        minutesUntil
       });
     } else {
       res.status(500).json({ success: false, error: result.error });
@@ -331,8 +337,9 @@ router.get('/pending', requireAdminAuth, async (req, res) => {
     for (const reminder of settings.reminders) {
       if (!reminder.enabled) continue;
       
-      const targetTime = new Date(now.getTime() + reminder.hoursBeforeAppointment * 60 * 60 * 1000);
-      const windowEnd = new Date(targetTime.getTime() + 30 * 60 * 1000);
+      const minutesMs = reminder.minutesBeforeAppointment * 60 * 1000;
+      const targetTime = new Date(now.getTime() + minutesMs);
+      const windowEnd = new Date(targetTime.getTime() + 5 * 60 * 1000);
       
       const appointments = await Appointment.find({
         date: { $gte: targetTime, $lte: windowEnd },
@@ -345,7 +352,7 @@ router.get('/pending', requireAdminAuth, async (req, res) => {
       
       upcoming.push({
         reminder: reminder.name,
-        hours: reminder.hoursBeforeAppointment,
+        minutes: reminder.minutesBeforeAppointment,
         count: appointments.length,
         appointments: appointments.map(a => ({
           id: a._id,
