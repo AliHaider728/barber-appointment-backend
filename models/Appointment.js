@@ -24,6 +24,7 @@ const appointmentSchema = new mongoose.Schema({
   date: { type: Date, required: true, index: true },
   duration: { type: Number, required: true },
   
+  
   // SERVICES
   services: [{
     serviceRef: { type: mongoose.Schema.Types.ObjectId, ref: 'Service', required: true },
