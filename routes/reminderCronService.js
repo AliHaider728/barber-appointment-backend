@@ -6,8 +6,8 @@ import { sendAppointmentReminder } from '../utils/reminderEmailService.js';
 let cronJob = null;
 
 export const startReminderCron = () => {
-  // Run every 30 minutes
-  cronJob = cron.schedule('*/30 * * * *', async () => {
+  // Run every 5 minutes (changed from 30 for better precision)
+  cronJob = cron.schedule('*/5 * * * *', async () => {
     try {
       console.log('🔔 Running reminder cron job...');
       
@@ -27,12 +27,15 @@ export const startReminderCron = () => {
           continue;
         }
         
-        // Calculate the target time window
-        const targetTime = new Date(now.getTime() + reminder.hoursBeforeAppointment * 60 * 60 * 1000);
-        const windowStart = new Date(targetTime.getTime() - 15 * 60 * 1000); // 15 min before
-        const windowEnd = new Date(targetTime.getTime() + 15 * 60 * 1000); // 15 min after
+        // ✅ FIX: Use minutesBeforeAppointment instead of hoursBeforeAppointment
+        const targetTime = new Date(now.getTime() + reminder.minutesBeforeAppointment * 60 * 1000);
+        const windowStart = new Date(targetTime.getTime() - 2.5 * 60 * 1000); // 2.5 min before
+        const windowEnd = new Date(targetTime.getTime() + 2.5 * 60 * 1000); // 2.5 min after
         
-        console.log(`📅 Checking ${reminder.name} (${reminder.hoursBeforeAppointment}h before)`);
+        const hoursBeforeAppointment = Math.floor(reminder.minutesBeforeAppointment / 60);
+        
+        console.log(`📅 Checking ${reminder.name} (${reminder.minutesBeforeAppointment} minutes before)`);
+        console.log(`📅 Window: ${windowStart.toISOString()} to ${windowEnd.toISOString()}`);
         
         // Find appointments in the time window that haven't received this reminder
         const appointments = await Appointment.find({
@@ -69,7 +72,7 @@ export const startReminderCron = () => {
               time: appointmentTime,
               duration: appointment.duration,
               totalPrice: appointment.totalPrice,
-              hoursUntilAppointment: reminder.hoursBeforeAppointment
+              hoursUntilAppointment: hoursBeforeAppointment
             });
             
             if (result.success) {
@@ -102,7 +105,7 @@ export const startReminderCron = () => {
     }
   });
   
-  console.log('✅ Reminder cron job started (runs every 30 minutes)');
+  console.log('✅ Reminder cron job started (runs every 5 minutes)');
 };
 
 export const stopReminderCron = () => {

@@ -16,8 +16,6 @@ const optionalAuth = async (req, res, next) => {
     
     if (token) {
       const decoded = jwt.verify(token, process.env.JWT_SECRET || 'supersecretkey123456789');
-      
-      // Dynamically import User model
       const User = (await import('../models/User.js')).default;
       const user = await User.findById(decoded.userId || decoded.id);
       
@@ -28,7 +26,6 @@ const optionalAuth = async (req, res, next) => {
     }
     next();
   } catch (error) {
-    // If token is invalid, just continue without user
     next();
   }
 };
@@ -58,14 +55,13 @@ const requireAuth = async (req, res, next) => {
   }
 };
 
-// ✅ CORS Headers Middleware - Add at the top of router
+// CORS Headers
 router.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
   res.header('Access-Control-Allow-Credentials', 'true');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   
-  // Handle preflight
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
@@ -73,14 +69,19 @@ router.use((req, res, next) => {
   next();
 });
 
-// TEST EMAIL ENDPOINT - For debugging (moved to top for easy access)
+// ✅ NEW: TEST EMAIL ENDPOINT WITH DETAILED DIAGNOSTICS
 router.get('/test-email', async (req, res) => {
   try {
     console.log('🧪 Testing email service...');
+    console.log('📧 Environment check:', {
+      EMAIL_USER: process.env.EMAIL_USER || 'NOT SET',
+      EMAIL_APP_PASSWORD: process.env.EMAIL_APP_PASSWORD ? '✅ SET' : '❌ NOT SET',
+      PASSWORD_LENGTH: process.env.EMAIL_APP_PASSWORD?.length || 0
+    });
     
-    const result = await sendBookingConfirmation('boydecant5@gmail.com', {
+    const result = await sendBookingConfirmation('alihaideransari904@gmail.com', {
       customerName: 'Test User',
-      bookingRef: 'TEST123',
+      bookingRef: 'TEST' + Date.now(),
       branchName: 'Test Branch',
       branchAddress: 'Test Address, City',
       barberName: 'Test Barber',
@@ -96,7 +97,11 @@ router.get('/test-email', async (req, res) => {
     
     if (result.success) {
       console.log('✅ Test email sent successfully');
-      res.json({ success: true, message: 'Test email sent successfully! Check boydecant5@gmail.com' });
+      res.json({ 
+        success: true, 
+        message: 'Test email sent! Check alihaideransari904@gmail.com',
+        messageId: result.messageId 
+      });
     } else {
       console.error('❌ Test email failed:', result.error);
       res.status(500).json({ success: false, error: result.error });
@@ -107,7 +112,7 @@ router.get('/test-email', async (req, res) => {
   }
 });
 
-// GET appointments by barber and date (for booking conflicts) - Move before /:id route
+// GET appointments by barber and date
 router.get('/barber/:barberId/date/:date', async (req, res) => {
   try {
     const { barberId, date } = req.params;
@@ -138,14 +143,13 @@ router.get('/barber/:barberId/date/:date', async (req, res) => {
   }
 });
 
-// GET all appointments (with user filtering)
+// GET all appointments
 router.get('/', optionalAuth, async (req, res) => {
   try {
     const { barber, branch, status, date } = req.query;
     
     let filter = {};
     
-    // CRITICAL: If user is logged in and has 'user' role, filter by their email/userId
     if (req.user && req.user.role === 'user') {
       filter.$or = [
         { email: req.user.email },
@@ -156,7 +160,6 @@ router.get('/', optionalAuth, async (req, res) => {
       console.log('👥 No user filter applied (admin/barber or no auth)');
     }
     
-    // Additional filters
     if (barber && mongoose.Types.ObjectId.isValid(barber)) {
       filter.barber = barber;
     }
@@ -192,7 +195,7 @@ router.get('/', optionalAuth, async (req, res) => {
   }
 });
 
-// GET single appointment (with ownership check)
+// GET single appointment
 router.get('/:id', optionalAuth, async (req, res) => {
   try {
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
@@ -208,7 +211,6 @@ router.get('/:id', optionalAuth, async (req, res) => {
       return res.status(404).json({ message: 'Appointment not found' });
     }
 
-    // Check ownership if user is logged in
     if (req.user && req.user.role === 'user') {
       const isOwner = appointment.email === req.user.email || 
                       appointment.userId?.toString() === req.user._id.toString();
@@ -225,7 +227,7 @@ router.get('/:id', optionalAuth, async (req, res) => {
   }
 });
 
-// CREATE appointment - With IMPROVED EMAIL CONFIRMATION
+// ✅ IMPROVED: CREATE APPOINTMENT WITH BETTER EMAIL HANDLING
 router.post('/', optionalAuth, async (req, res) => {
   try {
     const {
@@ -241,7 +243,10 @@ router.post('/', optionalAuth, async (req, res) => {
     } = req.body;
 
     console.log('📝 Creating appointment for:', email);
-    console.log('📦 Received payload:', { customerName, email, phone, date, selectedServices, barber, branch, duration, totalPrice });
+    console.log('📧 Email config status:', {
+      EMAIL_USER: process.env.EMAIL_USER ? '✅' : '❌',
+      EMAIL_PASSWORD: process.env.EMAIL_APP_PASSWORD ? '✅' : '❌'
+    });
 
     // Validation
     if (!customerName || !email || !phone || !date || !barber || !branch || !duration) {
@@ -316,7 +321,7 @@ router.post('/', optionalAuth, async (req, res) => {
 
     console.log('✅ Enriched services:', enrichedServices);
 
-    // Calculate total if not provided
+    // Calculate total
     const calculatedTotal = totalPrice || enrichedServices.reduce((sum, s) => {
       const priceValue = parseFloat(s.price.replace('£', '').trim());
       return sum + priceValue;
@@ -324,7 +329,7 @@ router.post('/', optionalAuth, async (req, res) => {
 
     console.log('💰 Total price:', calculatedTotal);
 
-    // Create appointment with userId if user is logged in
+    // Create appointment
     const appointmentData = {
       customerName: customerName.trim(),
       email: email.trim().toLowerCase(),
@@ -341,7 +346,6 @@ router.post('/', optionalAuth, async (req, res) => {
       paymentStatus: 'pending'
     };
 
-    // Add userId if user is authenticated
     if (req.user) {
       appointmentData.userId = req.user._id;
       console.log('👤 Appointment linked to user:', req.user.email);
@@ -352,7 +356,7 @@ router.post('/', optionalAuth, async (req, res) => {
 
     console.log('✅ Appointment saved to database:', appointment._id);
 
-    // Populate appointment details for response and email
+    // Populate for response
     const populated = await Appointment.findById(appointment._id)
       .populate('barber', 'name email')
       .populate('branch', 'name city address')
@@ -360,23 +364,39 @@ router.post('/', optionalAuth, async (req, res) => {
 
     console.log('✅ Appointment populated successfully');
 
-    // ✅ SEND EMAIL CONFIRMATION (Non-blocking)
-    (async () => {
+    // ✅ IMPROVED EMAIL SENDING WITH DETAILED LOGGING
+    setImmediate(async () => {
       try {
-        // Fetch full branch and barber details
-        const branchData = await Branch.findById(branch);
-        const barberData = await Barber.findById(barber);
-
-        if (!branchData || !barberData) {
-          console.error('⚠️ Branch or Barber not found for email');
-          console.error('Branch ID:', branch, 'Found:', !!branchData);
-          console.error('Barber ID:', barber, 'Found:', !!barberData);
+        console.log('📧 [EMAIL PROCESS STARTED]');
+        console.log('📧 Target email:', populated.email);
+        
+        // Check if email credentials are set
+        if (!process.env.EMAIL_USER || !process.env.EMAIL_APP_PASSWORD) {
+          console.error('❌ EMAIL CREDENTIALS NOT SET IN ENVIRONMENT!');
+          console.error('❌ EMAIL_USER:', process.env.EMAIL_USER || 'MISSING');
+          console.error('❌ EMAIL_APP_PASSWORD:', process.env.EMAIL_APP_PASSWORD ? 'SET' : 'MISSING');
           return;
         }
 
+        console.log('✅ Email credentials found');
+
+        // Fetch full data
+        const branchData = await Branch.findById(branch);
+        const barberData = await Barber.findById(barber);
+
+        if (!branchData) {
+          console.error('❌ Branch not found for ID:', branch);
+          return;
+        }
+        if (!barberData) {
+          console.error('❌ Barber not found for ID:', barber);
+          return;
+        }
+
+        console.log('✅ Branch found:', branchData.name);
+        console.log('✅ Barber found:', barberData.name);
+
         const appointmentDate = new Date(populated.date);
-        
-        // Format time as 24-hour HH:MM
         const appointmentTime = appointmentDate.toLocaleTimeString('en-GB', { 
           hour: '2-digit', 
           minute: '2-digit',
@@ -399,23 +419,33 @@ router.post('/', optionalAuth, async (req, res) => {
           totalPrice: populated.totalPrice
         };
 
-        console.log('📧 Preparing to send email to:', populated.email);
-        console.log('📧 Email data:', JSON.stringify(emailData, null, 2));
+        console.log('📧 Email data prepared:', {
+          to: populated.email,
+          customerName: emailData.customerName,
+          bookingRef: emailData.bookingRef,
+          services: emailData.services.length
+        });
 
+        console.log('📧 Calling sendBookingConfirmation...');
         const result = await sendBookingConfirmation(populated.email, emailData);
         
         if (result.success) {
-          console.log('✅ Booking confirmation email sent successfully to:', populated.email);
+          console.log('✅✅✅ EMAIL SENT SUCCESSFULLY!');
+          console.log('✅ Message ID:', result.messageId);
+          console.log('✅ To:', populated.email);
         } else {
-          console.error('❌ Failed to send email:', result.error);
+          console.error('❌❌❌ EMAIL FAILED!');
+          console.error('❌ Error:', result.error);
         }
       } catch (emailError) {
-        console.error('❌ Email sending error:', emailError.message);
-        console.error('❌ Full error:', emailError);
+        console.error('❌❌❌ EMAIL EXCEPTION!');
+        console.error('❌ Error type:', emailError.name);
+        console.error('❌ Error message:', emailError.message);
+        console.error('❌ Error stack:', emailError.stack);
       }
-    })();
+    });
 
-    // Return response immediately (don't wait for email)
+    // Return response immediately
     res.status(201).json(populated);
 
   } catch (error) {
@@ -428,7 +458,7 @@ router.post('/', optionalAuth, async (req, res) => {
   }
 });
 
-// UPDATE appointment (with ownership check + barber reassignment support)
+// UPDATE appointment
 router.put('/:id', optionalAuth, async (req, res) => {
   try {
     const { id } = req.params;
@@ -438,13 +468,11 @@ router.put('/:id', optionalAuth, async (req, res) => {
       return res.status(400).json({ message: 'Invalid appointment ID' });
     }
 
-    // Check if appointment exists
     const existingAppointment = await Appointment.findById(id);
     if (!existingAppointment) {
       return res.status(404).json({ message: 'Appointment not found' });
     }
 
-    // Check ownership if user is logged in and has 'user' role
     if (req.user && req.user.role === 'user') {
       const isOwner = existingAppointment.email === req.user.email || 
                       existingAppointment.userId?.toString() === req.user._id.toString();
@@ -470,7 +498,6 @@ router.put('/:id', optionalAuth, async (req, res) => {
       updateData.paymentStatus = paymentStatus;
     }
 
-    // Support barber reassignment for leave conflict resolution
     if (barber) {
       if (!mongoose.Types.ObjectId.isValid(barber)) {
         return res.status(400).json({ message: 'Invalid barber ID' });
@@ -497,7 +524,7 @@ router.put('/:id', optionalAuth, async (req, res) => {
   }
 });
 
-// DELETE appointment (with ownership check)
+// DELETE appointment
 router.delete('/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
@@ -512,7 +539,6 @@ router.delete('/:id', requireAuth, async (req, res) => {
       return res.status(404).json({ message: 'Appointment not found' });
     }
 
-    // Check ownership for regular users
     if (req.user.role === 'user') {
       const isOwner = appointment.email === req.user.email || 
                       appointment.userId?.toString() === req.user._id.toString();

@@ -1,49 +1,28 @@
 import mongoose from 'mongoose';
 
-const reminderSettingsSchema = new mongoose.Schema({
-  reminders: [
-    {
-      name: {
-        type: String,
-        required: true
-      },
-      minutesBeforeAppointment: {
-        type: Number,
-        required: true,
-        min: 0,
-        validate: {
-          validator: Number.isInteger,
-          message: 'Minutes must be an integer'
-        }
-      },
-      enabled: {
-        type: Boolean,
-        default: true
-      },
-      emailSubject: {
-        type: String,
-        default: 'Appointment Reminder'
-      },
-      emailTemplate: {
-        type: String,
-        default: 'default'
-      }
-    }
-  ],
-  createdAt: {
-    type: Date,
-    default: Date.now
+const reminderSchema = new mongoose.Schema({
+  name: {
+    type: String,
+    required: true,
+    trim: true
   },
-  updatedAt: {
-    type: Date,
-    default: Date.now
+  minutesBeforeAppointment: {
+    type: Number,
+    required: true,
+    min: 0
+  },
+  enabled: {
+    type: Boolean,
+    default: true
+  },
+  emailSubject: {
+    type: String,
+    default: 'Appointment Reminder'
   }
-});
+}, { timestamps: true });
 
-// Update the updatedAt timestamp before saving
-reminderSettingsSchema.pre('save', function(next) {
-  this.updatedAt = Date.now();
-  next();
-});
+const reminderSettingsSchema = new mongoose.Schema({
+  reminders: [reminderSchema]
+}, { timestamps: true });
 
 export default mongoose.model('ReminderSettings', reminderSettingsSchema);
