@@ -22,7 +22,7 @@ const requireAdminAuth = async (req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     console.log('✅ Token decoded:', { adminId: decoded.adminId || decoded.id });
     
-    const Admin = (await import('../models/Admin.js')).default;
+    const Admin = (await import('../models/Admins.js')).default;
     const admin = await Admin.findById(decoded.adminId || decoded.id);
     
     if (!admin) {
