@@ -6,10 +6,13 @@ import { sendAppointmentReminder } from '../utils/reminderEmailService.js';
 let cronJob = null;
 
 export const startReminderCron = () => {
-  // Run every 5 minutes (changed from 30 for better precision)
+  // Run every 5 minutes
   cronJob = cron.schedule('*/5 * * * *', async () => {
     try {
+      console.log('🔔 ===============================');
       console.log('🔔 Running reminder cron job...');
+      console.log('🔔 Time:', new Date().toISOString());
+      console.log('🔔 ===============================');
       
       const settings = await ReminderSettings.findOne();
       
@@ -17,6 +20,8 @@ export const startReminderCron = () => {
         console.log('⚠️ No reminder settings found');
         return;
       }
+      
+      console.log('✅ Found reminder settings with', settings.reminders.length, 'reminders');
       
       const now = new Date();
       let totalSent = 0;
@@ -27,15 +32,19 @@ export const startReminderCron = () => {
           continue;
         }
         
-        // ✅ FIX: Use minutesBeforeAppointment instead of hoursBeforeAppointment
-        const targetTime = new Date(now.getTime() + reminder.minutesBeforeAppointment * 60 * 1000);
+        // Calculate target time based on minutes
+        const minutesMs = reminder.minutesBeforeAppointment * 60 * 1000;
+        const targetTime = new Date(now.getTime() + minutesMs);
         const windowStart = new Date(targetTime.getTime() - 2.5 * 60 * 1000); // 2.5 min before
         const windowEnd = new Date(targetTime.getTime() + 2.5 * 60 * 1000); // 2.5 min after
         
         const hoursBeforeAppointment = Math.floor(reminder.minutesBeforeAppointment / 60);
+        const remainingMinutes = reminder.minutesBeforeAppointment % 60;
         
-        console.log(`📅 Checking ${reminder.name} (${reminder.minutesBeforeAppointment} minutes before)`);
-        console.log(`📅 Window: ${windowStart.toISOString()} to ${windowEnd.toISOString()}`);
+        console.log(`\n📅 Checking: ${reminder.name}`);
+        console.log(`⏰ Time: ${hoursBeforeAppointment}h ${remainingMinutes}m (${reminder.minutesBeforeAppointment} minutes)`);
+        console.log(`🎯 Target time: ${targetTime.toISOString()}`);
+        console.log(`📊 Window: ${windowStart.toISOString()} to ${windowEnd.toISOString()}`);
         
         // Find appointments in the time window that haven't received this reminder
         const appointments = await Appointment.find({
@@ -58,16 +67,28 @@ export const startReminderCron = () => {
               hour12: false
             });
             
+            console.log(`\n📨 Sending reminder to: ${appointment.email}`);
+            console.log(`👤 Customer: ${appointment.customerName}`);
+            console.log(`📅 Appointment: ${appointmentDate.toISOString()}`);
+            console.log(`⏰ Time: ${appointmentTime}`);
+            console.log(`✂️ Services: ${appointment.services.length}`);
+            
+            // Map services properly
+            const servicesList = appointment.services.map(s => ({
+              name: s.name || 'N/A',
+              price: s.price || '£0',
+              duration: s.duration || '0 min'
+            }));
+            
+            console.log(`📋 Services list:`, servicesList);
+            
             const result = await sendAppointmentReminder(appointment.email, {
               customerName: appointment.customerName,
               bookingRef: appointment._id.toString(),
               branchName: appointment.branch?.name || 'N/A',
               branchAddress: appointment.branch?.address || appointment.branch?.city || 'N/A',
               barberName: appointment.barber?.name || 'N/A',
-              services: appointment.services.map(s => ({
-                name: s.name,
-                price: s.price
-              })),
+              services: servicesList,
               date: appointment.date,
               time: appointmentTime,
               duration: appointment.duration,
@@ -84,7 +105,8 @@ export const startReminderCron = () => {
               await appointment.save();
               
               totalSent++;
-              console.log(`✅ Sent ${reminder.name} to ${appointment.email} for ${appointmentDate.toLocaleDateString()}`);
+              console.log(`✅ Sent ${reminder.name} to ${appointment.email}`);
+              console.log(`✅ Marked reminder as sent in database`);
             } else {
               console.error(`❌ Failed to send reminder to ${appointment.email}:`, result.error);
             }
@@ -94,18 +116,24 @@ export const startReminderCron = () => {
             
           } catch (error) {
             console.error(`❌ Error sending reminder for appointment ${appointment._id}:`, error);
+            console.error(`❌ Error details:`, error.message);
           }
         }
       }
       
-      console.log(`✅ Cron job completed. Total reminders sent: ${totalSent}`);
+      console.log(`\n🔔 ===============================`);
+      console.log(`✅ Cron job completed`);
+      console.log(`📊 Total reminders sent: ${totalSent}`);
+      console.log(`🔔 ===============================\n`);
       
     } catch (error) {
       console.error('❌ Cron job error:', error);
+      console.error('❌ Error stack:', error.stack);
     }
   });
   
   console.log('✅ Reminder cron job started (runs every 5 minutes)');
+  console.log('⏰ Next run will be in 5 minutes');
 };
 
 export const stopReminderCron = () => {

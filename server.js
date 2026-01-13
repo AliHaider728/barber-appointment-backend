@@ -56,6 +56,7 @@ app.use((req, res, next) => {
   next();
 });
 
+
 // CORS
 const allowedOrigins = [
   'http://localhost:5173',
