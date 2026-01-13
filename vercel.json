@@ -14,11 +14,5 @@
         "Cross-Origin-Opener-Policy": "same-origin-allow-popups"
       }
     }
-  ],
-  "crons": [
-    {
-      "path": "/api/reminders/cron",
-      "schedule": "*/5 * * * *"
-    }
   ]
 }
