@@ -419,7 +419,7 @@ router.get('/pending', requireAdminAuth, async (req, res) => {
         message: 'No reminder settings found',
         appointments: []
       });
-    }
+    } 
     
     const now = new Date();
     const upcoming = [];
