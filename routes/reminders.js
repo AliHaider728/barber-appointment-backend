@@ -16,30 +16,18 @@ const requireAdminAuth = async (req, res, next) => {
       return res.status(401).json({ error: 'Authentication required' });
     }
     
-    console.log('🔑 Token received, verifying...');
-    
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    console.log('✅ Token decoded:', { adminId: decoded.adminId || decoded.id });
-    
     const Admin = (await import('../models/Admins.js')).default;
     const admin = await Admin.findById(decoded.adminId || decoded.id);
     
     if (!admin) {
-      console.log('❌ Admin not found for ID:', decoded.adminId || decoded.id);
       return res.status(401).json({ error: 'Admin not found' });
     }
     
-    console.log('✅ Admin authenticated:', admin.email);
     req.admin = admin;
     next();
   } catch (error) {
     console.error('❌ Admin auth error:', error.message);
-    if (error.name === 'JsonWebTokenError') {
-      return res.status(401).json({ error: 'Invalid token format' });
-    }
-    if (error.name === 'TokenExpiredError') {
-      return res.status(401).json({ error: 'Token expired' });
-    }
     res.status(401).json({ error: 'Authentication failed' });
   }
 };
@@ -58,39 +46,157 @@ router.use((req, res, next) => {
   next();
 });
 
+// ✅ VERCEL CRON ENDPOINT - Runs automatically every 5 minutes
+router.get('/cron', async (req, res) => {
+  try {
+    console.log('🔔 ===============================');
+    console.log('🔔 VERCEL CRON: Running reminder job');
+    console.log('🔔 Time:', new Date().toISOString());
+    console.log('🔔 ===============================');
+    
+    const settings = await ReminderSettings.findOne();
+    
+    if (!settings) {
+      console.log('⚠️ No reminder settings found');
+      return res.json({ success: true, message: 'No settings', sent: 0 });
+    }
+    
+    console.log('✅ Found', settings.reminders.length, 'reminder configurations');
+    
+    const now = new Date();
+    let totalSent = 0;
+    const results = [];
+    
+    for (const reminder of settings.reminders) {
+      if (!reminder.enabled) {
+        console.log(`⏭️ Skipping disabled: ${reminder.name}`);
+        continue;
+      }
+      
+      const minutesMs = reminder.minutesBeforeAppointment * 60 * 1000;
+      const targetTime = new Date(now.getTime() + minutesMs);
+      const windowStart = new Date(targetTime.getTime() - 2.5 * 60 * 1000);
+      const windowEnd = new Date(targetTime.getTime() + 2.5 * 60 * 1000);
+      
+      const hours = Math.floor(reminder.minutesBeforeAppointment / 60);
+      const minutes = reminder.minutesBeforeAppointment % 60;
+      
+      console.log(`\n📅 Processing: ${reminder.name}`);
+      console.log(`⏰ Time: ${hours}h ${minutes}m (${reminder.minutesBeforeAppointment} min)`);
+      
+      const appointments = await Appointment.find({
+        date: { $gte: windowStart, $lte: windowEnd },
+        status: { $in: ['pending', 'confirmed'] },
+        remindersSent: { $ne: reminder._id.toString() }
+      })
+        .populate('barber', 'name')
+        .populate('branch', 'name address city')
+        .populate('services.serviceRef', 'name price duration');
+      
+      console.log(`📧 Found ${appointments.length} appointments`);
+      
+      let reminderSent = 0;
+      
+      for (const appointment of appointments) {
+        try {
+          const appointmentDate = new Date(appointment.date);
+          const appointmentTime = appointmentDate.toLocaleTimeString('en-GB', { 
+            hour: '2-digit', 
+            minute: '2-digit',
+            hour12: false
+          });
+          
+          const servicesList = appointment.services.map(s => ({
+            name: s.name || 'N/A',
+            price: s.price || '£0',
+            duration: s.duration || '0 min'
+          }));
+          
+          const emailResult = await sendAppointmentReminder(appointment.email, {
+            customerName: appointment.customerName,
+            bookingRef: appointment._id.toString(),
+            branchName: appointment.branch?.name || 'N/A',
+            branchAddress: appointment.branch?.address || appointment.branch?.city || 'N/A',
+            barberName: appointment.barber?.name || 'N/A',
+            services: servicesList,
+            date: appointment.date,
+            time: appointmentTime,
+            duration: appointment.duration,
+            totalPrice: appointment.totalPrice,
+            hoursUntilAppointment: hours
+          });
+          
+          if (emailResult.success) {
+            if (!appointment.remindersSent) {
+              appointment.remindersSent = [];
+            }
+            appointment.remindersSent.push(reminder._id.toString());
+            await appointment.save();
+            
+            reminderSent++;
+            totalSent++;
+            console.log(`✅ Sent to ${appointment.email}`);
+          } else {
+            console.error(`❌ Failed: ${emailResult.error}`);
+          }
+          
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          
+        } catch (error) {
+          console.error(`❌ Error:`, error.message);
+        }
+      }
+      
+      results.push({
+        reminder: reminder.name,
+        found: appointments.length,
+        sent: reminderSent
+      });
+    }
+    
+    console.log(`\n✅ CRON COMPLETE: ${totalSent} sent\n`);
+    
+    res.json({
+      success: true,
+      timestamp: new Date().toISOString(),
+      totalSent,
+      results
+    });
+    
+  } catch (error) {
+    console.error('❌ CRON ERROR:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // GET reminder settings
 router.get('/settings', requireAdminAuth, async (req, res) => {
   try {
-    console.log('📋 Fetching reminder settings for:', req.admin?.email);
-    
     let settings = await ReminderSettings.findOne();
     
-    // Create default settings if none exist
     if (!settings) {
       settings = new ReminderSettings({
         reminders: [
           {
             name: '24 Hours Before',
-            minutesBeforeAppointment: 1440, // 24 * 60
+            minutesBeforeAppointment: 1440,
             enabled: true,
             emailSubject: 'Appointment Reminder - Tomorrow'
           },
           {
             name: '2 Hours Before',
-            minutesBeforeAppointment: 120, // 2 * 60
+            minutesBeforeAppointment: 120,
             enabled: true,
             emailSubject: 'Appointment Reminder - In 2 Hours'
           }
         ]
       });
       await settings.save();
-      console.log('✅ Default reminder settings created');
     }
     
-    console.log('✅ Returning settings with', settings.reminders.length, 'reminders');
     res.json(settings);
   } catch (error) {
-    console.error('❌ Get reminder settings error:', error);
+    console.error('❌ Get settings error:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -98,27 +204,23 @@ router.get('/settings', requireAdminAuth, async (req, res) => {
 // UPDATE reminder settings
 router.put('/settings', requireAdminAuth, async (req, res) => {
   try {
-    console.log('🔄 Updating reminder settings by:', req.admin?.email);
     const { reminders } = req.body;
     
     let settings = await ReminderSettings.findOne();
-    
     if (!settings) {
       settings = new ReminderSettings();
     }
     
     if (reminders) {
       settings.reminders = reminders;
-      console.log(`🔄 Updated ${reminders.length} reminders`);
     }
     
     settings.updatedAt = new Date();
     await settings.save();
     
-    console.log('✅ Reminder settings updated successfully');
     res.json(settings);
   } catch (error) {
-    console.error('❌ Update reminder settings error:', error);
+    console.error('❌ Update settings error:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -126,7 +228,6 @@ router.put('/settings', requireAdminAuth, async (req, res) => {
 // ADD new reminder
 router.post('/settings/reminder', requireAdminAuth, async (req, res) => {
   try {
-    console.log('➕ Adding new reminder by:', req.admin?.email);
     const { name, minutesBeforeAppointment, enabled, emailSubject } = req.body;
     
     if (!name || typeof minutesBeforeAppointment !== 'number') {
@@ -152,7 +253,6 @@ router.post('/settings/reminder', requireAdminAuth, async (req, res) => {
     settings.updatedAt = new Date();
     await settings.save();
     
-    console.log('✅ New reminder added:', name);
     res.json(settings);
   } catch (error) {
     console.error('❌ Add reminder error:', error);
@@ -163,7 +263,6 @@ router.post('/settings/reminder', requireAdminAuth, async (req, res) => {
 // DELETE reminder
 router.delete('/settings/reminder/:id', requireAdminAuth, async (req, res) => {
   try {
-    console.log('🗑️ Deleting reminder:', req.params.id, 'by:', req.admin?.email);
     const { id } = req.params;
     
     const settings = await ReminderSettings.findOne();
@@ -172,9 +271,7 @@ router.delete('/settings/reminder/:id', requireAdminAuth, async (req, res) => {
     }
     
     const initialLength = settings.reminders.length;
-    settings.reminders = settings.reminders.filter(
-      r => r._id.toString() !== id
-    );
+    settings.reminders = settings.reminders.filter(r => r._id.toString() !== id);
     
     if (settings.reminders.length === initialLength) {
       return res.status(404).json({ error: 'Reminder not found' });
@@ -183,7 +280,6 @@ router.delete('/settings/reminder/:id', requireAdminAuth, async (req, res) => {
     settings.updatedAt = new Date();
     await settings.save();
     
-    console.log('✅ Reminder deleted:', id);
     res.json(settings);
   } catch (error) {
     console.error('❌ Delete reminder error:', error);
@@ -191,10 +287,9 @@ router.delete('/settings/reminder/:id', requireAdminAuth, async (req, res) => {
   }
 });
 
-// TOGGLE reminder status (PATCH)
+// TOGGLE reminder status
 router.patch('/settings/reminder/:id/toggle', requireAdminAuth, async (req, res) => {
   try {
-    console.log('🔄 Toggling reminder:', req.params.id);
     const { id } = req.params;
     const { enabled } = req.body;
     
@@ -212,7 +307,6 @@ router.patch('/settings/reminder/:id/toggle', requireAdminAuth, async (req, res)
     settings.updatedAt = new Date();
     await settings.save();
     
-    console.log('✅ Reminder toggled:', id, 'enabled:', enabled);
     res.json(settings);
   } catch (error) {
     console.error('❌ Toggle reminder error:', error);
@@ -220,10 +314,9 @@ router.patch('/settings/reminder/:id/toggle', requireAdminAuth, async (req, res)
   }
 });
 
-// UPDATE specific reminder (PUT)
+// UPDATE specific reminder
 router.put('/settings/reminder/:id', requireAdminAuth, async (req, res) => {
   try {
-    console.log('🔄 Updating reminder:', req.params.id);
     const { id } = req.params;
     const { name, minutesBeforeAppointment, enabled, emailSubject } = req.body;
     
@@ -250,7 +343,6 @@ router.put('/settings/reminder/:id', requireAdminAuth, async (req, res) => {
     settings.updatedAt = new Date();
     await settings.save();
     
-    console.log('✅ Reminder updated:', id);
     res.json(settings);
   } catch (error) {
     console.error('❌ Update reminder error:', error);
@@ -258,10 +350,9 @@ router.put('/settings/reminder/:id', requireAdminAuth, async (req, res) => {
   }
 });
 
-// MANUAL TEST - Send reminder for specific appointment
+// MANUAL TEST
 router.post('/test/:appointmentId', requireAdminAuth, async (req, res) => {
   try {
-    console.log('🧪 Testing reminder for appointment:', req.params.appointmentId);
     const { appointmentId } = req.params;
     
     const appointment = await Appointment.findById(appointmentId)
@@ -292,7 +383,8 @@ router.post('/test/:appointmentId', requireAdminAuth, async (req, res) => {
       barberName: appointment.barber?.name || 'N/A',
       services: appointment.services.map(s => ({
         name: s.name,
-        price: s.price
+        price: s.price,
+        duration: s.duration
       })),
       date: appointment.date,
       time: appointmentTime,
@@ -302,7 +394,6 @@ router.post('/test/:appointmentId', requireAdminAuth, async (req, res) => {
     });
     
     if (result.success) {
-      console.log('✅ Test reminder sent to:', appointment.email);
       res.json({ 
         success: true, 
         message: `Test reminder sent to ${appointment.email}!`,
@@ -318,10 +409,9 @@ router.post('/test/:appointmentId', requireAdminAuth, async (req, res) => {
   }
 });
 
-// GET upcoming appointments that need reminders
+// GET pending reminders
 router.get('/pending', requireAdminAuth, async (req, res) => {
   try {
-    console.log('📊 Fetching pending reminders');
     const settings = await ReminderSettings.findOne();
     
     if (!settings) {
@@ -365,7 +455,6 @@ router.get('/pending', requireAdminAuth, async (req, res) => {
       });
     }
     
-    console.log('✅ Found', upcoming.length, 'reminder groups');
     res.json({ 
       activeReminders: settings.reminders.filter(r => r.enabled).length,
       upcoming 
