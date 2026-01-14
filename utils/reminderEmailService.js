@@ -54,341 +54,280 @@ const getReminderEmailHTML = (reminderDetails) => {
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
-      font-family: 'Georgia', 'Times New Roman', serif;
-      background: #e1e1e1;
-      color: #000;
-      line-height: 1.6;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #f4f4f4;
+      color: #333;
     }
     .email-container {
       max-width: 600px;
-      margin: 40px auto;
+      margin: 20px auto;
       background: #fff;
-      border-radius: 0;
+      border-radius: 8px;
       overflow: hidden;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
     }
     .header {
-      background: #000;
-      padding: 50px 40px;
+      background: linear-gradient(135deg, #FFD700 0%, #FFA500 100%);
+      padding: 40px 30px;
       text-align: center;
-      color: #d4af37;
-      border-bottom: 3px solid #d4af37;
+      color: #000;
     }
     .reminder-badge {
-      background: #d4af37;
-      color: #000;
+      background: rgba(0,0,0,0.15);
       display: inline-block;
-      padding: 10px 30px;
-      margin-bottom: 20px;
-      font-size: 11px;
-      font-weight: 600;
+      padding: 8px 20px;
+      border-radius: 25px;
+      margin-bottom: 15px;
+      font-size: 13px;
+      font-weight: bold;
       text-transform: uppercase;
-      letter-spacing: 2px;
+      letter-spacing: 1px;
     }
     .header h1 {
-      font-size: 28px;
-      font-weight: 400;
-      margin: 15px 0;
-      letter-spacing: 1px;
+      font-size: 32px;
+      font-weight: 700;
+      margin: 10px 0;
     }
     .hours-remaining {
-      font-size: 18px;
-      font-weight: 300;
-      margin-top: 15px;
-      color: #d4af37;
-      border-top: 1px solid #d4af37;
-      border-bottom: 1px solid #d4af37;
+      font-size: 20px;
+      font-weight: 600;
+      margin-top: 10px;
+      background: rgba(0,0,0,0.1);
       display: inline-block;
-      padding: 12px 35px;
-      letter-spacing: 1px;
+      padding: 10px 25px;
+      border-radius: 30px;
     }
     .content {
-      padding: 40px;
-      background: #fff;
+      padding: 30px;
     }
     .greeting {
-      font-size: 15px;
-      margin-bottom: 30px;
-      line-height: 1.8;
-      color: #000;
+      font-size: 16px;
+      margin-bottom: 20px;
+      line-height: 1.6;
     }
     .info-card {
-      background: #fff;
-      border: 2px solid #e1e1e1;
-      padding: 30px;
-      margin: 30px 0;
+      background: #f8f9fa;
+      border-left: 4px solid #FFD700;
+      padding: 25px;
+      margin: 25px 0;
+      border-radius: 8px;
     }
     .info-card h2 {
-      font-size: 16px;
-      margin-bottom: 25px;
+      font-size: 18px;
+      margin-bottom: 20px;
       color: #000;
-      text-transform: uppercase;
-      letter-spacing: 2px;
-      font-weight: 400;
-      border-bottom: 1px solid #d4af37;
-      padding-bottom: 10px;
     }
     .info-row {
       display: flex;
       justify-content: space-between;
-      padding: 15px 0;
-      border-bottom: 1px solid #e1e1e1;
+      padding: 12px 0;
+      border-bottom: 1px solid #e0e0e0;
     }
     .info-row:last-child {
       border-bottom: none;
     }
     .info-row strong {
-      color: #000;
+      color: #666;
       font-weight: 600;
-      font-size: 14px;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-      font-size: 12px;
     }
     .info-row span {
-      color: #000;
+      color: #333;
       text-align: right;
-      font-size: 14px;
     }
     .services-section {
-      margin: 30px 0;
+      margin: 25px 0;
     }
     .services-section h3 {
-      font-size: 14px;
-      margin-bottom: 20px;
+      font-size: 16px;
+      margin-bottom: 15px;
       color: #000;
-      text-transform: uppercase;
-      letter-spacing: 2px;
-      font-weight: 400;
-      border-bottom: 1px solid #d4af37;
-      padding-bottom: 10px;
     }
     .service-item {
       display: flex;
       justify-content: space-between;
-      padding: 15px;
-      border-bottom: 1px solid #e1e1e1;
-      background: #fff;
-    }
-    .service-item:last-child {
-      border-bottom: 2px solid #e1e1e1;
+      padding: 12px;
+      border-bottom: 1px dotted #ddd;
+      background: #fafafa;
+      margin-bottom: 8px;
+      border-radius: 5px;
     }
     .service-item span {
-      color: #000;
-      font-size: 14px;
+      color: #333;
     }
     .service-item strong {
-      color: #d4af37;
+      color: #D4AF37;
       font-weight: 600;
-      font-size: 14px;
     }
     .total-section {
-      background: #000;
-      margin: 30px 0;
-      padding: 35px;
+      background: linear-gradient(135deg, #FFD700 0%, #FFA500 100%);
+      margin: 25px 0;
+      padding: 25px;
       text-align: center;
-      border-top: 3px solid #d4af37;
-      border-bottom: 3px solid #d4af37;
+      border-radius: 8px;
     }
     .total-label {
-      font-size: 12px;
-      margin-bottom: 10px;
-      color: #d4af37;
-      text-transform: uppercase;
-      letter-spacing: 2px;
-      font-weight: 400;
+      font-size: 14px;
+      margin-bottom: 5px;
+      color: #000;
+      opacity: 0.8;
     }
     .total-amount {
-      font-size: 42px;
-      font-weight: 300;
-      color: #d4af37;
-      letter-spacing: 2px;
+      font-size: 36px;
+      font-weight: 700;
+      color: #000;
     }
     .important-note {
-      background: #fff;
-      border: 2px solid #000;
-      padding: 25px;
-      margin: 30px 0;
+      background: #fff3cd;
+      border: 2px solid #ffc107;
+      padding: 20px;
+      margin: 25px 0;
+      border-radius: 8px;
       text-align: center;
     }
     .important-note strong {
-      color: #000;
-      font-size: 14px;
+      color: #856404;
+      font-size: 16px;
       display: block;
-      margin-bottom: 12px;
-      text-transform: uppercase;
-      letter-spacing: 2px;
-      font-weight: 600;
+      margin-bottom: 10px;
     }
     .important-note p {
-      color: #000;
-      font-size: 13px;
+      color: #856404;
+      font-size: 14px;
       margin: 0;
-      line-height: 1.6;
-    }
-    .booking-ref-section {
-      background: #e1e1e1;
-      padding: 25px;
-      text-align: center;
-      margin: 30px 0;
-      border-left: 4px solid #d4af37;
-    }
-    .booking-ref-section p:first-child {
-      font-size: 11px;
-      color: #000;
-      margin-bottom: 10px;
-      text-transform: uppercase;
-      letter-spacing: 2px;
-      font-weight: 600;
-    }
-    .booking-ref-section p:last-child {
-      font-size: 20px;
-      font-weight: 600;
-      color: #000;
-      letter-spacing: 3px;
-      font-family: 'Courier New', monospace;
     }
     .cta-button {
       text-align: center;
-      margin: 35px 0;
+      margin: 30px 0;
     }
     .cta-button a {
       display: inline-block;
-      background: #d4af37;
-      color: #000;
-      padding: 18px 50px;
-      text-decoration: none;
-      font-weight: 600;
-      font-size: 13px;
-      transition: all 0.3s;
-      text-transform: uppercase;
-      letter-spacing: 2px;
-      border: 2px solid #d4af37;
-    }
-    .cta-button a:hover {
       background: #000;
-      color: #d4af37;
-    }
-    .closing-text {
-      margin-top: 30px;
-      font-size: 14px;
-      color: #000;
-      text-align: center;
-      font-style: italic;
+      color: #FFD700;
+      padding: 15px 40px;
+      text-decoration: none;
+      border-radius: 8px;
+      font-weight: bold;
+      font-size: 16px;
+      transition: all 0.3s;
     }
     .footer {
       background: #000;
-      padding: 40px;
+      padding: 30px;
       text-align: center;
-      color: #e1e1e1;
-      border-top: 3px solid #d4af37;
+      color: #999;
     }
     .footer-title {
-      color: #d4af37;
-      font-size: 20px;
-      font-weight: 400;
-      margin-bottom: 15px;
-      letter-spacing: 3px;
-      text-transform: uppercase;
+      color: #FFD700;
+      font-size: 18px;
+      font-weight: bold;
+      margin-bottom: 10px;
     }
     .footer p {
-      margin: 10px 0;
+      margin: 8px 0;
       font-size: 13px;
-      line-height: 1.8;
-      color: #e1e1e1;
+      line-height: 1.6;
     }
     .footer-divider {
-      margin: 25px 0;
-      border-top: 1px solid #d4af37;
-      padding-top: 20px;
+      margin: 20px 0;
+      border-top: 1px solid #333;
+      padding-top: 15px;
     }
   </style>
 </head>
 <body>
   <div class="email-container">
+    <!-- Header with Reminder Badge -->
     <div class="header">
-      <div class="reminder-badge">Appointment Reminder</div>
-      <h1>Your Appointment Awaits</h1>
+      <div class="reminder-badge">⏰ APPOINTMENT REMINDER</div>
+      <h1>Don't Forget Your Appointment!</h1>
       <div class="hours-remaining">In ${hoursUntilAppointment} Hour${hoursUntilAppointment !== 1 ? 's' : ''}</div>
     </div>
 
+    <!-- Main Content -->
     <div class="content">
       <p class="greeting">
-        Dear <strong>${customerName}</strong>,<br/><br/>
-        This is a courteous reminder about your upcoming appointment at our establishment. 
-        We look forward to serving you with excellence.
+        Hi <strong>${customerName}</strong>,<br/><br/>
+        This is a friendly reminder about your upcoming appointment at our barbershop. 
+        We're excited to see you soon!
       </p>
 
+      <!-- Appointment Details Card -->
       <div class="info-card">
-        <h2>Appointment Details</h2>
+        <h2>  Your Appointment Details</h2>
         
         <div class="info-row">
-          <strong>Branch</strong>
+          <strong>Branch:</strong>
           <span>${branchName}</span>
         </div>
         
         <div class="info-row">
-          <strong>Address</strong>
+          <strong>Address:</strong>
           <span>${branchAddress}</span>
         </div>
         
         <div class="info-row">
-          <strong>Your Barber</strong>
+          <strong>Your Barber:</strong>
           <span>${barberName}</span>
         </div>
         
         <div class="info-row">
-          <strong>Date</strong>
+          <strong>Date:</strong>
           <span>${formattedDate}</span>
         </div>
         
         <div class="info-row">
-          <strong>Time</strong>
+          <strong>Time:</strong>
           <span>${time}</span>
         </div>
         
         <div class="info-row">
-          <strong>Duration</strong>
+          <strong>Duration:</strong>
           <span>${duration} minutes</span>
         </div>
       </div>
 
+      <!-- Services Booked -->
       <div class="services-section">
-        <h3>Services Reserved</h3>
+        <h3>✂️ Services Booked</h3>
         ${servicesHTML}
       </div>
 
+      <!-- Total Amount -->
       <div class="total-section">
         <div class="total-label">Total Amount</div>
         <div class="total-amount">£${totalPrice.toFixed(2)}</div>
       </div>
 
+      <!-- Important Note -->
       <div class="important-note">
-        <strong>Please Note</strong>
-        <p>We kindly request your arrival 5-10 minutes prior to your scheduled time. Should you need to reschedule or cancel, please inform us at your earliest convenience.</p>
+        <strong>⚠️ Important Reminder</strong>
+        <p>Please arrive 5-10 minutes early. If you need to reschedule or cancel, please let us know as soon as possible.</p>
       </div>
 
-      <div class="booking-ref-section">
-        <p>Booking Reference</p>
-        <p>${bookingRef}</p>
+      <!-- Booking Reference -->
+      <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; text-align: center; margin: 20px 0;">
+        <p style="font-size: 12px; color: #666; margin-bottom: 8px;">BOOKING REFERENCE</p>
+        <p style="font-size: 18px; font-weight: bold; color: #000; letter-spacing: 2px; font-family: 'Courier New', monospace;">${bookingRef}</p>
       </div>
 
+      <!-- CTA Button -->
       <div class="cta-button">
         <a href="https://barber-appointment-six.vercel.app">View My Bookings</a>
       </div>
 
-      <p class="closing-text">
-        We look forward to welcoming you.
+      <p style="margin-top: 25px; font-size: 14px; color: #666; text-align: center;">
+        Looking forward to seeing you! 💈
       </p>
     </div>
 
+    <!-- Footer -->
     <div class="footer">
       <div class="footer-title">Barber Shop</div>
-      <p>Thank you for entrusting us with your grooming requirements.</p>
-      <p>We are dedicated to delivering exceptional service.</p>
+      <p>Thank you for choosing us for your grooming needs.</p>
+      <p>We're committed to providing you the best service.</p>
       
       <div class="footer-divider">
-        <p>For assistance, please contact: ${process.env.EMAIL_USER}</p>
+        <p>Need help? Contact us at: ${process.env.EMAIL_USER}</p>
         <p style="margin-top: 15px; font-size: 11px;">© ${new Date().getFullYear()} Barber Appointments. All rights reserved.</p>
       </div>
     </div>
@@ -412,7 +351,7 @@ export const sendAppointmentReminder = async (email, reminderDetails) => {
         address: process.env.EMAIL_USER
       },
       to: email,
-      subject: `Reminder: Your Appointment in ${reminderDetails.hoursUntilAppointment}h - Ref: ${reminderDetails.bookingRef}`,
+      subject: `⏰ Reminder: Your Appointment in ${reminderDetails.hoursUntilAppointment}h - Ref: ${reminderDetails.bookingRef}`,
       html: getReminderEmailHTML(reminderDetails)
     });
 
