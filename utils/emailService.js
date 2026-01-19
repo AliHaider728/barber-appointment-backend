@@ -1,7 +1,10 @@
+// utils/EmailService.js
 import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
+import renderEmailFromTemplate from './emailRenderer.js'
 
 dotenv.config();
+
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
@@ -10,15 +13,15 @@ const transporter = nodemailer.createTransport({
   }
 });
 
-
 transporter.verify((error) => {
   if (error) {
-    console.error('Email transporter failed:', error);
+    console.error('❌ Email transporter failed:', error);
   } else {
-    console.log('Email server ready');
+    console.log('✅ Email server ready');
   }
 });
 
+//   OLD HARDCODED HTML (KEPT AS FALLBACK)  
 const getBookingEmailHTML = (bookingDetails) => {
   const {
     customerName,
@@ -223,9 +226,10 @@ const getBookingEmailHTML = (bookingDetails) => {
 `;
 };
 
+//   NEW: UPDATED MAIN FUNCTION WITH DYNAMIC TEMPLATES  
 export const sendBookingConfirmation = async (email, bookingDetails) => {
   try {
-    console.log('📧 Attempting to send email to:', email);
+    console.log('📧 Attempting to send booking confirmation to:', email);
     console.log('📧 Email config:', {
       user: process.env.EMAIL_USER ? 'Set ✅' : 'Missing ❌',
       pass: process.env.EMAIL_APP_PASSWORD ? 'Set ✅' : 'Missing ❌'
@@ -235,22 +239,59 @@ export const sendBookingConfirmation = async (email, bookingDetails) => {
       throw new Error('Email credentials not configured in environment variables');
     }
 
+    let emailHTML;
+    let emailSubject;
+
+    //   TRY TO USE DYNAMIC TEMPLATE FIRST  
+    try {
+      console.log('🎨 Attempting to use dynamic template...');
+      
+      const templateResult = await renderEmailFromTemplate('booking', {
+        customerName: bookingDetails.customerName,
+        bookingRef: bookingDetails.bookingRef,
+        branchName: bookingDetails.branchName,
+        branchAddress: bookingDetails.branchAddress,
+        barberName: bookingDetails.barberName,
+        services: bookingDetails.services,
+        date: bookingDetails.date,
+        time: bookingDetails.time,
+        duration: bookingDetails.duration,
+        totalPrice: bookingDetails.totalPrice,
+        paymentStatus: bookingDetails.paymentStatus || 'Pending'
+      });
+
+      emailHTML = templateResult.html;
+      emailSubject = templateResult.subject;
+      
+      console.log('✅ Using dynamic template from database');
+
+    } catch (templateError) {
+      //   FALLBACK TO HARDCODED TEMPLATE  
+      console.warn('⚠️ Dynamic template failed, using fallback:', templateError.message);
+      emailHTML = getBookingEmailHTML(bookingDetails);
+      emailSubject = `Booking Confirmed - Ref: ${bookingDetails.bookingRef}`;
+      console.log('✅ Using hardcoded fallback template');
+    }
+
+    //   SEND EMAIL  
     const info = await transporter.sendMail({
       from: {
         name: 'Barber Appointments',
         address: process.env.EMAIL_USER
       },
       to: email,
-      subject: `Booking Confirmed - Ref: ${bookingDetails.bookingRef}`,
-      html: getBookingEmailHTML(bookingDetails)
+      subject: emailSubject,
+      html: emailHTML
     });
  
     console.log('✅ Email sent successfully:', info.messageId);
     console.log('✅ Accepted recipients:', info.accepted);
     return { success: true, messageId: info.messageId };
+
   } catch (error) {
     console.error('❌ Email sending failed:', error.message);
     console.error('❌ Full error:', error);
     return { success: false, error: error.message };
   }
 };
+ 

@@ -1,5 +1,6 @@
 import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
+import renderEmailFromTemplate from './emailRenderer.js'
 
 dotenv.config();
 
@@ -11,6 +12,7 @@ const transporter = nodemailer.createTransport({
   }
 });
 
+//   OLD HARDCODED HTML (KEPT AS FALLBACK)  
 const getReminderEmailHTML = (reminderDetails) => {
   const {
     customerName,
@@ -129,12 +131,12 @@ const getReminderEmailHTML = (reminderDetails) => {
     .info-row strong {
       color: #666;
       font-weight: 600;
-      padding-right: 10px; /* Added padding to separate label from value */
+      padding-right: 10px;
     }
     .info-row span {
       color: #333;
       text-align: right;
-      flex: 1; /* Ensures value takes remaining space */
+      flex: 1;
     }
     .services-section {
       margin: 25px 0;
@@ -234,27 +236,18 @@ const getReminderEmailHTML = (reminderDetails) => {
       border-top: 1px solid #333;
       padding-top: 15px;
     }
-    svg {
-      display: inline-block;
-      vertical-align: middle;
-    }
   </style>
 </head>
 <body>
   <div class="email-container">
-    <!-- Header with Reminder Badge -->
     <div class="header">
       <div class="reminder-badge">
-        <svg style="width: 16px; height: 16px; margin-right: 8px; vertical-align: middle;" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M12 8V12L15 15M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12Z" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
         APPOINTMENT REMINDER
       </div>
       <h1>Don't Forget Your Appointment!</h1>
       <div class="hours-remaining">In ${hoursUntilAppointment} Hour${hoursUntilAppointment !== 1 ? 's' : ''}</div>
     </div>
 
-    <!-- Main Content -->
     <div class="content">
       <p class="greeting">
         Hi <strong>${customerName}</strong>,<br/><br/>
@@ -262,7 +255,6 @@ const getReminderEmailHTML = (reminderDetails) => {
         We're excited to see you soon!
       </p>
 
-      <!-- Appointment Details Card -->
       <div class="info-card">
         <h2>Your Appointment Details</h2>
         
@@ -297,41 +289,26 @@ const getReminderEmailHTML = (reminderDetails) => {
         </div>
       </div>
 
-      <!-- Services Booked -->
       <div class="services-section">
-        <h3>
-          <svg style="width: 16px; height: 16px; margin-right: 8px; vertical-align: middle;" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M6 21C7.65685 21 9 19.6569 9 18C9 16.3431 7.65685 15 6 15C4.34315 15 3 16.3431 3 18C3 19.6569 4.34315 21 6 21ZM6 21L13.8586 13.1414M18 9C19.6569 9 21 7.65685 21 6C21 4.34315 19.6569 3 18 3C16.3431 3 15 4.34315 15 6C15 7.65685 16.3431 9 18 9ZM18 9L13.8586 13.1414M13.8586 13.1414L20.424 19.7065" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-          Services Booked
-        </h3>
+        <h3>Services Booked</h3>
         ${servicesHTML}
       </div>
 
-      <!-- Total Amount -->
       <div class="total-section">
         <div class="total-label">Total Amount</div>
         <div class="total-amount">£${totalPrice.toFixed(2)}</div>
       </div>
 
-      <!-- Important Note -->
       <div class="important-note">
-        <strong>
-          <svg style="width: 16px; height: 16px; margin-right: 8px; vertical-align: middle;" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M12 9V13M12 17H12.01M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12Z" stroke="#856404" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-          Important Reminder
-        </strong>
+        <strong>Important Reminder</strong>
         <p>Please arrive 5-10 minutes early. If you need to reschedule or cancel, please let us know as soon as possible.</p>
       </div>
 
-      <!-- Booking Reference -->
       <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; text-align: center; margin: 20px 0;">
         <p style="font-size: 12px; color: #666; margin-bottom: 8px;">BOOKING REFERENCE</p>
         <p style="font-size: 18px; font-weight: bold; color: #000; letter-spacing: 2px; font-family: 'Courier New', monospace;">${bookingRef}</p>
       </div>
 
-      <!-- CTA Button -->
       <div class="cta-button">
         <a href="https://barber-appointment-six.vercel.app">View My Bookings</a>
       </div>
@@ -341,7 +318,6 @@ const getReminderEmailHTML = (reminderDetails) => {
       </p>
     </div>
 
-    <!-- Footer -->
     <div class="footer">
       <div class="footer-title">Barber Shop</div>
       <p>Thank you for choosing us for your grooming needs.</p>
@@ -358,6 +334,7 @@ const getReminderEmailHTML = (reminderDetails) => {
 `;
 };
 
+//   NEW: UPDATED MAIN FUNCTION WITH DYNAMIC TEMPLATES  
 export const sendAppointmentReminder = async (email, reminderDetails) => {
   try {
     console.log('📧 Sending reminder email to:', email);
@@ -366,20 +343,57 @@ export const sendAppointmentReminder = async (email, reminderDetails) => {
       throw new Error('Email credentials not configured');
     }
 
+    let emailHTML;
+    let emailSubject;
+
+    //   TRY TO USE DYNAMIC TEMPLATE FIRST  
+    try {
+      console.log('🎨 Attempting to use dynamic reminder template...');
+      
+      const templateResult = await renderEmailFromTemplate('reminder', {
+        customerName: reminderDetails.customerName,
+        bookingRef: reminderDetails.bookingRef,
+        branchName: reminderDetails.branchName,
+        branchAddress: reminderDetails.branchAddress,
+        barberName: reminderDetails.barberName,
+        services: reminderDetails.services,
+        date: reminderDetails.date,
+        time: reminderDetails.time,
+        duration: reminderDetails.duration,
+        totalPrice: reminderDetails.totalPrice,
+        hoursUntilAppointment: reminderDetails.hoursUntilAppointment
+      });
+
+      emailHTML = templateResult.html;
+      emailSubject = templateResult.subject;
+      
+      console.log('✅ Using dynamic reminder template from database');
+
+    } catch (templateError) {
+      //   FALLBACK TO HARDCODED TEMPLATE  
+      console.warn('⚠️ Dynamic template failed, using fallback:', templateError.message);
+      emailHTML = getReminderEmailHTML(reminderDetails);
+      emailSubject = `Reminder: Your Appointment in ${reminderDetails.hoursUntilAppointment}h - Ref: ${reminderDetails.bookingRef}`;
+      console.log('✅ Using hardcoded fallback template');
+    }
+
+    //   SEND EMAIL  
     const info = await transporter.sendMail({
       from: {
         name: 'Barber Shop - Reminder',
         address: process.env.EMAIL_USER
       },
       to: email,
-      subject: `Reminder: Your Appointment in ${reminderDetails.hoursUntilAppointment}h - Ref: ${reminderDetails.bookingRef}`,
-      html: getReminderEmailHTML(reminderDetails)
+      subject: emailSubject,
+      html: emailHTML
     });
 
     console.log('✅ Reminder email sent:', info.messageId);
     return { success: true, messageId: info.messageId };
+
   } catch (error) {
     console.error('❌ Reminder email failed:', error.message);
     return { success: false, error: error.message };
   }
 };
+ 

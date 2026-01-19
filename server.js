@@ -22,8 +22,10 @@ import webhookRoutes from './routes/webhooks.js';
 import otpRoutes from './routes/otpRoutes.js';
 import branchAdminRoutes from './routes/branchAdmin.js';
 import reminderRoutes from './routes/reminders.js';
+import emailTemplateRoutes from './routes/emailTemplates.js'
 // REMINDER CRON SERVICE
 import { startReminderCron } from './routes/reminderCronService.js';
+
 
 // CLOUDINARY
 cloudinary.config({
@@ -159,6 +161,7 @@ app.use('/api/admins', adminRoutes);
 app.use('/api/otp', otpRoutes);
 app.use('/api/branch-admin', branchAdminRoutes);
 app.use('/api/reminders', reminderRoutes);
+app.use('/api/email-templates', emailTemplateRoutes);
 
 // 404 HANDLER
 app.use('*', (req, res) => {
